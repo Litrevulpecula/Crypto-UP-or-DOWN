@@ -1,0 +1,39 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# --- Virtual environments ---
+.venv/
+live/.venv_hibt/
+
+# --- Large data / artifacts (not source) ---
+results/
+raw_data/
+aligned_data/
+aligned_data_oos/
+cache/
+catboost_info/
+
+# --- Runtime state & browser profiles (sensitive: sessions/cookies) ---
+live/runtime/
+live/hibt/runtime/
+live/polymarket/runtime/
+**/runtime/
+
+# --- Live signal feed (ephemeral) ---
+live/signals.json
+
+# --- Secrets / local configs (keep *.example.json only) ---
+live/polymarket/poly_config.json
+live/hibt/hibt_config.vps.json
+*.local.json
+.env
+.env.*
+*.pem
+*.key
+
+# --- Editor / tooling local state ---
+.claude/settings.local.json

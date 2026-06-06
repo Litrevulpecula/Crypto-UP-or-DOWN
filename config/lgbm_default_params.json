@@ -1,0 +1,54 @@
+{
+  "BTCUSDT": {
+    "trial_params": {
+      "train_days": 360
+    },
+    "metadata": {
+      "best_value": 0.0,
+      "best_user_attrs": {},
+      "best_params": {
+        "n_estimators": 1000,
+        "learning_rate": 0.1,
+        "num_leaves": 31,
+        "min_child_samples": 20,
+        "subsample": 1.0,
+        "subsample_freq": 0,
+        "colsample_bytree": 1.0,
+        "reg_alpha": 0.0,
+        "reg_lambda": 0.0,
+        "random_state": 42,
+        "verbosity": -1,
+        "objective": "binary",
+        "early_stopping_rounds": 250,
+        "device_type": "cpu"
+      },
+      "target_window": 0
+    }
+  },
+  "ETHUSDT": {
+    "trial_params": {
+      "train_days": 360
+    },
+    "metadata": {
+      "best_value": 0.0,
+      "best_user_attrs": {},
+      "best_params": {
+        "n_estimators": 1000,
+        "learning_rate": 0.1,
+        "num_leaves": 31,
+        "min_child_samples": 20,
+        "subsample": 1.0,
+        "subsample_freq": 0,
+        "colsample_bytree": 1.0,
+        "reg_alpha": 0.0,
+        "reg_lambda": 0.0,
+        "random_state": 42,
+        "verbosity": -1,
+        "objective": "binary",
+        "early_stopping_rounds": 250,
+        "device_type": "cpu"
+      },
+      "target_window": 0
+    }
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "BTCUSDT": {
+    "source": "/home/vcp1919/Crypto_UP_or_DOWN/config/lgbm_15m_walk_forward_optuna_params.json",
+    "live_optuna_search": false,
+    "source_trials": 40,
+    "best_value": 14.800011237673138,
+    "best_params": {
+      "n_estimators": 2000,
+      "learning_rate": 0.015535711129111647,
+      "num_leaves": 16,
+      "min_child_samples": 260,
+      "subsample": 0.6750876059461803,
+      "subsample_freq": 1,
+      "colsample_bytree": 0.553113248026559,
+      "reg_alpha": 0.16544128138365252,
+      "reg_lambda": 0.34696472684022917,
+      "objective": "binary",
+      "random_state": 42,
+      "verbosity": -1
+    },
+    "best_user_attrs": {
+      "best_iteration": 263,
+      "validation_auc": 0.5863724013562253,
+      "validation_thresholds": {
+        "mode": "double",
+        "threshold": 0.495,
+        "short_threshold": 0.4,
+        "long_threshold": 0.59,
+        "sharpe": 14.800011237673138,
+        "pnl": 146.00000000000003,
+        "trades": 781,
+        "trade_fraction": 0.13559027777777777,
+        "win_rate": 0.6594110115236875,
+        "tie_trades": 0,
+        "tie_trade_fraction": 0.0,
+        "min_trades": 288
+      },
+      "validation_sharpe": 14.800011237673138,
+      "validation_pnl": 146.00000000000003
+    },
+    "trials": 0
+  },
+  "ETHUSDT": {
+    "source": "/home/vcp1919/Crypto_UP_or_DOWN/config/lgbm_15m_walk_forward_optuna_params.json",
+    "live_optuna_search": false,
+    "source_trials": 40,
+    "best_value": 13.512873298934858,
+    "best_params": {
+      "n_estimators": 2000,
+      "learning_rate": 0.015077681153939766,
+      "num_leaves": 16,
+      "min_child_samples": 160,
+      "subsample": 0.6182096494749166,
+      "subsample_freq": 1,
+      "colsample_bytree": 0.5760206371941119,
+      "reg_alpha": 4.387314432435407,
+      "reg_lambda": 5.746775499181867,
+      "objective": "binary",
+      "random_state": 42,
+      "verbosity": -1
+    },
+    "best_user_attrs": {
+      "best_iteration": 294,
+      "validation_auc": 0.5827975544674908,
+      "validation_thresholds": {
+        "mode": "double",
+        "threshold": 0.515,
+        "short_threshold": 0.45,
+        "long_threshold": 0.58,
+        "sharpe": 13.512873298934858,
+        "pnl": 214.70000000000007,
+        "trades": 1984,
+        "trade_fraction": 0.34444444444444444,
+        "win_rate": 0.6157337367624811,
+        "tie_trades": 1,
+        "tie_trade_fraction": 0.00017361111111111112,
+        "min_trades": 288
+      },
+      "validation_sharpe": 13.512873298934858,
+      "validation_pnl": 214.70000000000007
+    },
+    "trials": 0
+  }
+}
