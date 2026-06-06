@@ -3,9 +3,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
 from pathlib import Path
 
+LIVE_DIR = Path(__file__).resolve().parents[1]
+if str(LIVE_DIR) not in sys.path:
+    sys.path.insert(0, str(LIVE_DIR))
+
+from log_colors import colorize_line  # noqa: E402
 from hibt_config import HibtConfig
 
 
@@ -49,8 +55,10 @@ def main() -> int:
     except ModuleNotFoundError as exc:
         if exc.name == "playwright":
             print(
-                "missing dependency: playwright. Install with: "
-                "pip install -r requirements_hibt.txt && python -m playwright install --with-deps chromium",
+                colorize_line(
+                    "missing dependency: playwright. Install with: "
+                    "pip install -r requirements_hibt.txt && python -m playwright install --with-deps chromium"
+                ),
                 flush=True,
             )
             return 4
@@ -58,44 +66,56 @@ def main() -> int:
 
     reader = SignalReader(config.signal_path)
     trader = HibtTrader(config)
-    print(
+    message = (
         f"HiBT runner start dry_run={config.dry_run} confirm_order={config.click_confirm_order} "
-        f"signal_path={config.signal_path}",
-        flush=True,
+        f"signal_path={config.signal_path}"
     )
+    print(colorize_line(message), flush=True)
 
     with HibtBrowser(config) as browser:
         if args.login:
             url = browser.open_for_login("BTC-USDT")
-            print(f"login browser opened at {url}; press Ctrl+C here after login is complete", flush=True)
+            print(
+                colorize_line(f"login browser opened at {url}; press Ctrl+C here after login is complete"),
+                flush=True,
+            )
             try:
                 while True:
                     time.sleep(5)
             except KeyboardInterrupt:
-                print("login session closed", flush=True)
+                print(colorize_line("login session closed"), flush=True)
                 return 0
         while True:
             try:
-                signals = reader.read()
+                signals = reader.read() if args.once else reader.read_if_changed()
                 for signal in signals:
+                    start = time.perf_counter()
                     result = trader.handle_signal(browser, signal)
+                    elapsed_ms = (time.perf_counter() - start) * 1000.0
+                    print(
+                        colorize_line(
+                            f"DONE HiBT signal {signal.symbol} {signal.timeframe or 'na'} "
+                            f"{signal.side} elapsed_ms={elapsed_ms:.1f}"
+                        ),
+                        flush=True,
+                    )
                     if result and config.stop_after_first_trade:
                         return 0
                 if args.once:
                     return 0
                 time.sleep(config.poll_seconds)
             except KeyboardInterrupt:
-                print("stopped by user", flush=True)
+                print(colorize_line("stopped by user"), flush=True)
                 return 130
             except SafetyHalt as exc:
-                print(f"safety halt: {exc}", flush=True)
+                print(colorize_line(f"safety halt: {exc}"), flush=True)
                 return 2
             except Exception as exc:
                 if not getattr(exc, "hibt_signal_recorded", False):
                     trader.journal.record_failure(None, exc)
-                print(f"error: {type(exc).__name__}: {exc}", flush=True)
+                print(colorize_line(f"error: {type(exc).__name__}: {exc}"), flush=True)
                 if trader.journal.state.consecutive_failures >= config.risk.max_consecutive_failures:
-                    print("too many consecutive failures; exiting", flush=True)
+                    print(colorize_line("too many consecutive failures; exiting"), flush=True)
                     return 3
                 if args.once:
                     return 1

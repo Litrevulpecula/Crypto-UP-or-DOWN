@@ -76,7 +76,7 @@ def suggest_params(trial: optuna.Trial, args: argparse.Namespace) -> dict:
     }
 
 
-def split_latest(dataset: pd.DataFrame, args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+def split_latest(dataset: pd.DataFrame, args: argparse.Namespace) -> tuple[pd.DataFrame, pd.DataFrame]:
     validation_end = dataset.index.max()
     validation_start = validation_end - pd.Timedelta(days=args.validation_days)
     train = dataset.loc[dataset.index < validation_start]
@@ -85,10 +85,24 @@ def split_latest(dataset: pd.DataFrame, args: argparse.Namespace) -> tuple[pd.Da
         train = train.loc[train.index >= validation_start - pd.Timedelta(days=args.train_window_days)]
     train = base.sample_aligned_frame(train, args.train_sample_minutes)
     validation = base.sample_aligned_frame(validation, args.validation_sample_minutes)
-    fit_all = base.sample_aligned_frame(dataset, args.train_sample_minutes)
     if train.empty or validation.empty:
         raise RuntimeError("Not enough data for latest train/validation split.")
-    return train, validation, fit_all
+    return train, validation
+
+
+def parse_utc_timestamp(value: str | None) -> pd.Timestamp | None:
+    if value is None:
+        return None
+    timestamp = pd.Timestamp(value)
+    if timestamp.tzinfo is None:
+        return timestamp.tz_localize("UTC")
+    return timestamp.tz_convert("UTC")
+
+
+def latest_completed_month_cutoff(target_horizon_minutes: int) -> pd.Timestamp:
+    now = pd.Timestamp.now(tz="UTC")
+    current_month_start = pd.Timestamp(year=now.year, month=now.month, day=1, tz="UTC")
+    return current_month_start - pd.Timedelta(minutes=target_horizon_minutes)
 
 
 def fixed_record_for_symbol(fixed_payload: dict, symbol: str) -> dict:
@@ -151,7 +165,6 @@ def train_final_symbol(
     columns: list[str],
     train: pd.DataFrame,
     validation: pd.DataFrame,
-    fit_all: pd.DataFrame,
     params: dict,
     args: argparse.Namespace,
 ) -> dict:
@@ -174,38 +187,48 @@ def train_final_symbol(
     raw_thresholds = base.choose_thresholds(validation_prob, validation_actual, rt, validation_tie)
     thresholds = base.adjust_extreme_thresholds(raw_thresholds, validation_prob)
 
-    final_params = dict(params)
-    final_params["n_estimators"] = int(selector.best_iteration_ or params["n_estimators"])
-    final_model = lgb.LGBMClassifier(**final_params)
-    final_weight = base.train_sample_weight(fit_all, prefix, rt)
-    final_model.fit(fit_all[columns], fit_all[f"{prefix}_target"].astype(int), sample_weight=final_weight)
+    # Deploy the selector itself: it is trained only on `train` (validation is out-of-sample),
+    # so the deployed model and the thresholds picked on its validation predictions share the
+    # same provenance. Retraining on validation here would let the model memorize the exact rows
+    # used to calibrate thresholds, biasing live behavior. This mirrors the walk-forward flow.
     model_path = args.out_dir / "models" / f"live_{prefix}.txt"
-    final_model.booster_.save_model(model_path)
+    selector.booster_.save_model(model_path)
     return {
         "model_path": str(model_path),
-        "best_iteration": final_params["n_estimators"],
+        "best_iteration": int(selector.best_iteration_ or params["n_estimators"]),
         "raw_thresholds": raw_thresholds,
         "thresholds": thresholds,
         "validation_auc": base.auc_or_nan(validation_actual, validation_prob, validation_tie),
         "validation_start": validation.index.min().isoformat(),
         "validation_end": validation.index.max().isoformat(),
-        "fit_all_start": fit_all.index.min().isoformat(),
-        "fit_all_end": fit_all.index.max().isoformat(),
-        "fit_all_rows": int(len(fit_all)),
+        "train_start": train.index.min().isoformat(),
+        "train_end": train.index.max().isoformat(),
+        "train_rows": int(len(train)),
     }
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Train latest 15m live LightGBM models from fixed walk-forward Optuna params.")
+    parser = argparse.ArgumentParser(
+        description="Train latest monthly-cutoff live LightGBM models from fixed walk-forward Optuna params."
+    )
     parser.add_argument("--data-root", type=Path, default=Path("aligned_data_oos"))
     parser.add_argument("--out-dir", type=Path, default=DEFAULT_15M_OUT_DIR)
     parser.add_argument("--symbols", default=",".join(base.SYMBOLS))
-    parser.add_argument("--feature-set", choices=base.FEATURE_SETS, default="v2")
+    parser.add_argument("--feature-set", choices=base.FEATURE_SETS, default="v1")
     parser.add_argument("--target-horizon-minutes", type=int, default=15)
     parser.add_argument("--target-tie-policy", choices=["drop", "down", "expected"], default="expected")
     parser.add_argument("--validation-days", type=int, default=60)
     parser.add_argument("--train-window-days", type=int, default=0)
     parser.add_argument("--train-time-decay-half-life-days", type=float, default=365.0)
+    parser.add_argument(
+        "--dataset-end",
+        help=(
+            "UTC max decision_time for training. Defaults to latest completed monthly cutoff "
+            "(current month start minus target horizon)."
+        ),
+    )
+    parser.add_argument("--no-monthly-cutoff", action="store_true", help="Use all available labeled rows instead.")
+    parser.add_argument("--include-live-overlay", action="store_true", help="Include 1m_live.csv overlays in training data.")
     parser.add_argument("--train-sample-minutes", type=int, default=15)
     parser.add_argument("--validation-sample-minutes", type=int, default=15)
     parser.add_argument("--min-trade-fraction", type=float, default=0.05)
@@ -260,6 +283,14 @@ def main() -> None:
             args.optuna_trials = 0
     if args.train_window_days <= 0:
         args.train_window_days = None
+    dataset_end = parse_utc_timestamp(args.dataset_end)
+    dataset_end_policy = "explicit"
+    if dataset_end is None:
+        if args.no_monthly_cutoff:
+            dataset_end_policy = "all_available_labeled_rows"
+        else:
+            dataset_end = latest_completed_month_cutoff(args.target_horizon_minutes)
+            dataset_end_policy = "latest_completed_month"
     args.out_dir.mkdir(parents=True, exist_ok=True)
     (args.out_dir / "models").mkdir(parents=True, exist_ok=True)
     symbols = base.parse_symbols(args.symbols)
@@ -275,12 +306,17 @@ def main() -> None:
         sample_minutes=dataset_sample_minutes,
         target_tie_policy=args.target_tie_policy,
         feature_set=args.feature_set,
+        include_live_overlay=args.include_live_overlay,
     )
+    if dataset_end is not None:
+        dataset = dataset.loc[dataset.index <= dataset_end]
+        if dataset.empty:
+            raise RuntimeError(f"No labeled dataset rows at or before dataset_end={dataset_end.isoformat()}.")
     columns_by_symbol = {symbol: base.feature_columns_for_symbol(dataset, symbol) for symbol in symbols}
     with (args.out_dir / "feature_columns.json").open("w", encoding="utf-8") as handle:
         json.dump({"features_by_symbol": {s: {"feature_count": len(c), "features": c} for s, c in columns_by_symbol.items()}}, handle, indent=2)
         handle.write("\n")
-    train, validation, fit_all = split_latest(dataset, args)
+    train, validation = split_latest(dataset, args)
     optuna_report = {}
     live_report = {}
     fixed_payload = None
@@ -309,7 +345,6 @@ def main() -> None:
             columns_by_symbol[symbol],
             train,
             validation,
-            fit_all,
             optuna_report[symbol]["best_params"],
             args,
         )
@@ -322,6 +357,9 @@ def main() -> None:
         "rows": int(len(dataset)),
         "dataset_start": dataset.index.min().isoformat(),
         "dataset_end": dataset.index.max().isoformat(),
+        "dataset_end_policy": dataset_end_policy,
+        "dataset_end_requested": None if dataset_end is None else dataset_end.isoformat(),
+        "include_live_overlay": bool(args.include_live_overlay),
         "symbols": list(symbols),
         "feature_set": args.feature_set,
         "target_horizon_minutes": args.target_horizon_minutes,

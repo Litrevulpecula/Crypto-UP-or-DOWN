@@ -13,21 +13,10 @@ from typing import Any
 
 from hibt_config import FingerprintConfig
 
-DEFAULT_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
-)
-
-
-def resolve_user_agent(fp: FingerprintConfig) -> str:
-    return fp.user_agent or DEFAULT_USER_AGENT
-
-
 def context_options(fp: FingerprintConfig) -> dict[str, Any]:
     """Launch-time options set on the persistent context."""
     jitter = random.randint(-fp.viewport_jitter_px, fp.viewport_jitter_px)
-    return {
-        "user_agent": resolve_user_agent(fp),
+    options = {
         "color_scheme": fp.color_scheme,
         "device_scale_factor": fp.device_scale_factor,
         "extra_http_headers": {"Accept-Language": fp.accept_language},
@@ -35,6 +24,9 @@ def context_options(fp: FingerprintConfig) -> dict[str, Any]:
         "viewport": None,  # will be overridden by caller with jitter
         "_viewport_jitter": jitter,
     }
+    if fp.user_agent:
+        options["user_agent"] = fp.user_agent
+    return options
 
 
 def launch_args(fp: FingerprintConfig) -> list[str]:
@@ -57,9 +49,10 @@ def launch_args(fp: FingerprintConfig) -> list[str]:
 
 def init_script(fp: FingerprintConfig) -> str:
     """JS injected via add_init_script before any page script."""
-    seed = random.randint(1, 2**31)
+    seed = int(fp.seed) if fp.seed is not None else random.randint(1, 2**31)
     cfg = json.dumps(
         {
+            "userAgent": fp.user_agent,
             "languages": fp.languages,
             "language": fp.languages[0] if fp.languages else "zh-CN",
             "platform": fp.platform,
@@ -103,6 +96,9 @@ _INIT_SCRIPT_TEMPLATE = r"""
   define(Navigator.prototype, 'webdriver', () => undefined);
 
   // === 2. navigator properties ===
+  const UA = CFG.userAgent || navigator.userAgent;
+  const appVersion = UA.replace(/^Mozilla\//, '');
+  define(Navigator.prototype, 'userAgent', () => UA);
   define(Navigator.prototype, 'languages', () => Object.freeze([...CFG.languages]));
   define(Navigator.prototype, 'language', () => CFG.language);
   define(Navigator.prototype, 'platform', () => CFG.platform);
@@ -110,7 +106,7 @@ _INIT_SCRIPT_TEMPLATE = r"""
   define(Navigator.prototype, 'deviceMemory', () => CFG.deviceMemory);
   define(Navigator.prototype, 'maxTouchPoints', () => 0);
   define(Navigator.prototype, 'vendor', () => 'Google Inc.');
-  define(Navigator.prototype, 'appVersion', () => '5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36');
+  define(Navigator.prototype, 'appVersion', () => appVersion);
 
   // === 3. window.chrome ===
   if (!window.chrome) window.chrome = {};

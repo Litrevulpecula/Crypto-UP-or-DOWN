@@ -15,7 +15,7 @@ fi
 
 echo "=== Syncing Chrome profile to VPS ==="
 echo "Source: $LOCAL_PROFILE"
-echo "Target: $VPS:$REMOTE_DIR/live/runtime/hibt-chrome-profile/"
+echo "Target: $VPS:$REMOTE_DIR/live/hibt/runtime/hibt-chrome-profile/"
 
 rsync -avz --delete \
   --exclude='CacheStorage/' \
@@ -24,7 +24,7 @@ rsync -avz --delete \
   --exclude='GPUCache/' \
   --exclude='Service Worker/' \
   --exclude='*.log' \
-  "$LOCAL_PROFILE/" "$VPS:$REMOTE_DIR/live/runtime/hibt-chrome-profile/"
+  "$LOCAL_PROFILE/" "$VPS:$REMOTE_DIR/live/hibt/runtime/hibt-chrome-profile/"
 
 echo ""
 echo "Profile synced. The VPS Chrome will use your login session."

@@ -6,6 +6,11 @@ import argparse
 import sys
 from pathlib import Path
 
+LIVE_DIR = Path(__file__).resolve().parents[1]
+if str(LIVE_DIR) not in sys.path:
+    sys.path.insert(0, str(LIVE_DIR))
+
+from log_colors import colorize_line  # noqa: E402
 from poly_trader import PolyConfig, PolyTrader
 
 
@@ -25,7 +30,7 @@ def main() -> None:
         config.dry_run = True
 
     if not config.private_key:
-        print("ERROR: private_key is required in config", file=sys.stderr)
+        print(colorize_line("ERROR: private_key is required in config"), file=sys.stderr)
         sys.exit(1)
 
     trader = PolyTrader(config)

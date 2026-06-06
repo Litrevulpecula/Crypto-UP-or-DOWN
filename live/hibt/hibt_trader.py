@@ -2,12 +2,18 @@
 from __future__ import annotations
 
 import json
+import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
+LIVE_DIR = Path(__file__).resolve().parents[1]
+if str(LIVE_DIR) not in sys.path:
+    sys.path.insert(0, str(LIVE_DIR))
+
+from log_colors import colorize_line  # noqa: E402
 from hibt_config import HibtConfig, normalize_symbol
 from hibt_signal_reader import TradingSignal
 
@@ -151,12 +157,12 @@ class HibtTrader:
         allowed, reason = self.journal.can_trade(signal, self.config)
         if not allowed:
             self.journal.record_skip(signal, reason)
-            print(f"skip {signal.symbol} {signal.side}: {reason}", flush=True)
+            print(colorize_line(f"skip {signal.symbol} {signal.side}: {reason}"), flush=True)
             return None
         try:
             result = browser.execute_order(signal.symbol, signal.side, duration_label_for_signal(signal, self.config))
             self.journal.record_order(signal, result, self.config)
-            print(f"{result.status} {signal.symbol} {signal.side}: {result.message}", flush=True)
+            print(colorize_line(f"{result.status} {signal.symbol} {signal.side}: {result.message}"), flush=True)
             return result
         except Exception as exc:
             self.journal.record_failure(signal, exc)
@@ -177,6 +183,8 @@ def duration_label_for_signal(signal: TradingSignal, config: HibtConfig) -> str:
     timeframe = normalize_timeframe(signal.timeframe)
     if timeframe and timeframe in config.duration_labels:
         return config.duration_labels[timeframe]
+    if timeframe:
+        raise ValueError(f"Unsupported HiBT timeframe {timeframe!r}; configured={sorted(config.duration_labels)}")
     return config.duration_label
 
 

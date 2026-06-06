@@ -6,6 +6,7 @@ set -e
 DEPLOY_DIR="/opt/hibt"
 VENV_DIR="$DEPLOY_DIR/.venv"
 SERVICE_USER="hibt"
+DATA_ROOT="${DATA_ROOT:-aligned_data_oos}"
 
 echo "=== [1/5] System dependencies ==="
 apt-get update -qq
@@ -31,7 +32,14 @@ if [ ! -d "$VENV_DIR" ]; then
   python3 -m venv "$VENV_DIR"
 fi
 "$VENV_DIR/bin/pip" install -q --upgrade pip
-"$VENV_DIR/bin/pip" install -q playwright
+if [ -f "$DEPLOY_DIR/requirements.txt" ]; then
+  "$VENV_DIR/bin/pip" install -q -r "$DEPLOY_DIR/requirements.txt"
+fi
+if [ -f "$DEPLOY_DIR/live/hibt/requirements_hibt.txt" ]; then
+  "$VENV_DIR/bin/pip" install -q -r "$DEPLOY_DIR/live/hibt/requirements_hibt.txt"
+else
+  "$VENV_DIR/bin/pip" install -q playwright
+fi
 "$VENV_DIR/bin/python" -m playwright install-deps 2>/dev/null || true
 
 echo "=== [5/5] Systemd services ==="
@@ -60,10 +68,10 @@ Wants=network-online.target xvfb.service
 [Service]
 Type=simple
 User=$SERVICE_USER
-WorkingDirectory=$DEPLOY_DIR/live
+WorkingDirectory=$DEPLOY_DIR
 Environment=DISPLAY=:99
 Environment=HOME=$DEPLOY_DIR
-ExecStart=$VENV_DIR/bin/python3 run_hibt_live.py --config hibt_config.vps.json
+ExecStart=$VENV_DIR/bin/python3 live/run_hibt_stack.py --data-root $DATA_ROOT --symbols BTCUSDT,ETHUSDT --signal-model-dir 15m=live/models_15m --hibt-config live/hibt/hibt_config.vps.json
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
@@ -90,7 +98,7 @@ echo "       ~/Crypto_UP_or_DOWN/live/ root@47.79.32.65:$DEPLOY_DIR/live/"
 echo ""
 echo "  2. First-time login (over SSH with X forwarding or noVNC):"
 echo "     export DISPLAY=:99"
-echo "     cd $DEPLOY_DIR/live"
+echo "     cd $DEPLOY_DIR/live/hibt"
 echo "     $VENV_DIR/bin/python3 run_hibt_live.py --config hibt_config.vps.json --login"
 echo "     # Manually log in, then Ctrl+C"
 echo ""
@@ -99,6 +107,6 @@ echo "     systemctl start hibt-trader"
 echo "     journalctl -u hibt-trader -f"
 echo ""
 echo "  4. To run live (real trading):"
-echo "     Edit hibt_config.vps.json: set dry_run=false, click_confirm_order=true"
+echo "     Edit live/hibt/hibt_config.vps.json: set dry_run=false, click_confirm_order=true"
 echo "     systemctl restart hibt-trader"
 echo ""

@@ -70,6 +70,7 @@ class HibtBrowser:
         cfg = self.config.browser
         fp = cfg.fingerprint
         cfg.user_data_dir.mkdir(parents=True, exist_ok=True)
+        self._ensure_fingerprint_seed(cfg)
         self.playwright = sync_playwright().start()
 
         if cfg.cdp_mode:
@@ -109,6 +110,7 @@ class HibtBrowser:
             self.context.add_init_script(init_script(fp))
         self.context.set_default_timeout(cfg.action_timeout_ms)
         self.context.set_default_navigation_timeout(cfg.navigation_timeout_ms)
+        self.context.set_extra_http_headers({"Accept-Language": fp.accept_language})
         self.page = self.context.pages[0] if self.context.pages else self.context.new_page()
 
     def _start_launch(self, cfg: Any, fp: Any) -> None:
@@ -147,7 +149,23 @@ class HibtBrowser:
             self.context.add_init_script(init_script(fp))
         self.context.set_default_timeout(cfg.action_timeout_ms)
         self.context.set_default_navigation_timeout(cfg.navigation_timeout_ms)
+        self.context.set_extra_http_headers({"Accept-Language": fp.accept_language})
         self.page = self.context.pages[0] if self.context.pages else self.context.new_page()
+
+    def _ensure_fingerprint_seed(self, cfg: Any) -> None:
+        fp = cfg.fingerprint
+        if not fp.enabled or fp.seed is not None:
+            return
+        seed_path = cfg.user_data_dir / "fingerprint_seed.txt"
+        try:
+            if seed_path.exists():
+                seed = int(seed_path.read_text(encoding="utf-8").strip())
+            else:
+                seed = random.randint(1, 2**31)
+                seed_path.write_text(f"{seed}\n", encoding="utf-8")
+            fp.seed = seed
+        except Exception:
+            fp.seed = random.randint(1, 2**31)
 
     def _find_chrome(self, cfg: Any) -> str:
         """Locate Chrome binary."""
@@ -258,6 +276,13 @@ class HibtBrowser:
         page = self._page()
         locator = page.locator(self.config.selectors.amount_input)
         self._require_count(locator, 1, "amount input")
+        current = locator.input_value()
+        if current.strip():
+            try:
+                if _decimal_text(current) == _decimal_text(amount):
+                    return
+            except SafetyHalt:
+                pass
         self._pace()
         fp = self.config.browser.fingerprint
         if fp.enabled and fp.human_typing:
@@ -316,7 +341,7 @@ class HibtBrowser:
         self._validate_modal_text(modal_text, state_before, side)
         confirm_button = self._confirm_button()
         self._paced_click(confirm_button)
-        self._settle(seconds=1.5)
+        self._settle(seconds=self.config.browser.post_submit_settle_seconds)
         state_after = self.read_state()
         return OrderResult("submitted", "Order confirmation clicked.", state_before, state_after, modal_text=modal_text)
 
@@ -543,7 +568,8 @@ class HibtBrowser:
         self._pace()
         fp = self.config.browser.fingerprint
         if fp.enabled and fp.human_typing:
-            delay_ms = random.uniform(40, 120)
+            cfg = self.config.browser
+            delay_ms = random.uniform(cfg.min_click_delay_ms, cfg.max_click_delay_ms)
             locator.click(delay=delay_ms)
         else:
             locator.click()
@@ -561,11 +587,19 @@ class HibtBrowser:
         page = self._page()
         target_x = box["x"] + box["width"] * random.uniform(0.25, 0.75)
         target_y = box["y"] + box["height"] * random.uniform(0.25, 0.75)
-        points = _bezier_path(self._last_mouse_x, self._last_mouse_y, target_x, target_y)
+        cfg = self.config.browser
+        points = _bezier_path(
+            self._last_mouse_x,
+            self._last_mouse_y,
+            target_x,
+            target_y,
+            cfg.min_mouse_path_points,
+            cfg.max_mouse_path_points,
+        )
         for px, py in points:
             try:
                 page.mouse.move(px, py)
-                time.sleep(random.uniform(0.003, 0.012))
+                time.sleep(random.uniform(cfg.min_mouse_step_delay_ms, cfg.max_mouse_step_delay_ms) / 1000.0)
             except Exception:
                 break
         self._last_mouse_x = target_x
@@ -576,7 +610,12 @@ class HibtBrowser:
         time.sleep(random.uniform(cfg.min_action_delay_seconds, cfg.max_action_delay_seconds))
 
     def _settle(self, seconds: float | None = None) -> None:
-        time.sleep(seconds if seconds is not None else random.uniform(0.4, 1.2))
+        cfg = self.config.browser
+        time.sleep(
+            seconds
+            if seconds is not None
+            else random.uniform(cfg.min_settle_delay_seconds, cfg.max_settle_delay_seconds)
+        )
 
     def _wait_for_cf_challenge(self, page: Page, timeout_s: float = 30.0) -> None:
         """Detect and wait for Cloudflare Turnstile challenge to resolve."""
@@ -609,10 +648,19 @@ class HibtBrowser:
         return self.page
 
 
-def _bezier_path(x0: float, y0: float, x1: float, y1: float) -> list[tuple[float, float]]:
+def _bezier_path(
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+    min_points: int,
+    max_points: int,
+) -> list[tuple[float, float]]:
     """Generate a human-like cubic Bezier curve between two points."""
     dist = math.hypot(x1 - x0, y1 - y0)
-    num_points = max(12, min(35, int(dist / 15)))
+    low = max(2, int(min_points))
+    high = max(low, int(max_points))
+    num_points = max(low, min(high, int(dist / 30)))
     spread = dist * 0.3
     cp1x = x0 + (x1 - x0) * random.uniform(0.2, 0.5) + random.uniform(-spread, spread) * 0.4
     cp1y = y0 + (y1 - y0) * random.uniform(0.1, 0.4) + random.uniform(-spread, spread) * 0.4

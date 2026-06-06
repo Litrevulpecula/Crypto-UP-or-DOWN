@@ -13,15 +13,16 @@ LIVE_DIR = Path(__file__).resolve().parent
 @dataclass
 class FingerprintConfig:
     enabled: bool = True
+    seed: int | None = None
     user_agent: str | None = None
     accept_language: str = "zh-CN,zh;q=0.9,en;q=0.8"
     languages: list[str] = field(default_factory=lambda: ["zh-CN", "zh", "en"])
-    platform: str = "Win32"
-    hardware_concurrency: int = 8
-    device_memory: int = 8
-    webgl_vendor: str = "Google Inc. (NVIDIA)"
+    platform: str = "Linux x86_64"
+    hardware_concurrency: int = 2
+    device_memory: int = 4
+    webgl_vendor: str = "Google Inc. (Intel)"
     webgl_renderer: str = (
-        "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)"
+        "ANGLE (Intel, Mesa Intel UHD Graphics 630, OpenGL 4.6)"
     )
     color_scheme: str = "light"
     device_scale_factor: float = 1.0
@@ -32,8 +33,8 @@ class FingerprintConfig:
     audio_noise: bool = True
     block_webrtc_leak: bool = True
     human_typing: bool = True
-    min_type_delay_ms: int = 55
-    max_type_delay_ms: int = 165
+    min_type_delay_ms: int = 5
+    max_type_delay_ms: int = 20
     viewport_jitter_px: int = 3
 
 
@@ -41,7 +42,7 @@ class FingerprintConfig:
 class BrowserConfig:
     user_data_dir: Path = LIVE_DIR / "runtime" / "hibt-chrome-profile"
     headless: bool = False
-    slow_mo_ms: int = 80
+    slow_mo_ms: int = 0
     locale: str = "zh-CN"
     timezone_id: str = "Asia/Shanghai"
     executable_path: str | None = None
@@ -53,8 +54,17 @@ class BrowserConfig:
     viewport_height: int = 950
     navigation_timeout_ms: int = 30_000
     action_timeout_ms: int = 10_000
-    min_action_delay_seconds: float = 0.25
-    max_action_delay_seconds: float = 1.10
+    min_action_delay_seconds: float = 0.03
+    max_action_delay_seconds: float = 0.12
+    min_settle_delay_seconds: float = 0.05
+    max_settle_delay_seconds: float = 0.15
+    min_click_delay_ms: int = 10
+    max_click_delay_ms: int = 35
+    min_mouse_step_delay_ms: int = 1
+    max_mouse_step_delay_ms: int = 3
+    min_mouse_path_points: int = 8
+    max_mouse_path_points: int = 18
+    post_submit_settle_seconds: float = 0.25
     fingerprint: FingerprintConfig = field(default_factory=FingerprintConfig)
 
 
@@ -64,7 +74,7 @@ class RiskConfig:
     min_payout_rate_percent: float = 80.0
     max_signal_age_seconds: int = 240
     one_order_per_symbol_per_candle: bool = True
-    candle_minutes: int = 5
+    candle_minutes: int = 15
     cooldown_seconds: int = 120
     max_orders_per_day: int = 30
     max_orders_per_symbol_per_day: int = 18
@@ -97,12 +107,19 @@ class HibtConfig:
     base_url: str = "https://hibt.com/zh-cn/options"
     symbols: tuple[str, ...] = ("BTC-USDT", "ETH-USDT")
     amount_usdt: str = "3"
-    duration_label: str = "5分钟"
-    duration_labels: dict[str, str] = field(default_factory=lambda: {"3m": "3分钟", "5m": "5分钟"})
+    duration_label: str = "15分钟"
+    duration_labels: dict[str, str] = field(
+        default_factory=lambda: {
+            "3m": "3分钟",
+            "5m": "5分钟",
+            "10m": "10分钟",
+            "15m": "15分钟",
+        }
+    )
     signal_path: Path = LIVE_DIR / "signals.json"
     state_path: Path = LIVE_DIR / "runtime" / "hibt_state.json"
     log_path: Path = LIVE_DIR / "runtime" / "hibt_orders.jsonl"
-    poll_seconds: float = 2.0
+    poll_seconds: float = 0.1
     dry_run: bool = True
     click_confirm_order: bool = False
     stop_after_first_trade: bool = False

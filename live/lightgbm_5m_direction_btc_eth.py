@@ -33,19 +33,14 @@ DEFAULT_TARGET_HORIZON_MINUTES = 5
 TARGET_HORIZON_MINUTES = DEFAULT_TARGET_HORIZON_MINUTES
 SAMPLE_MINUTES = 5
 TIME_FEATURES = ("sin_hour", "cos_hour", "sin_dayofweek", "cos_dayofweek")
-SYMBOL_COLORS = {"BTC": "#F7931A", "ETH": "#627EEA"}
-FEATURE_SETS = ("v1", "v2")
+SYMBOL_COLORS = {"BTC": "#F59119", "ETH": "#647DEB"}
+FEATURE_SETS = ("v1",)
 FEATURE_SET_DESCRIPTIONS = {
     "v1": (
         "v1 current baseline with finite-difference acceleration, KAMA location/velocity/acceleration, "
         "volatility/order-flow ratios/interactions, futures-vs-spot ratios/interactions, "
         "spot multi-window returns, same-symbol futures-vs-spot basis/ratio/interaction features, "
-        "and exact duplicate feature pruning; no cross-symbol features and no duplicated raw futures market features"
-    ),
-    "v2": (
-        "v2 = v1 plus BTC-only ETH cross features: ETH spot returns, BTC-vs-ETH relative returns, "
-        "rolling BTC/ETH return correlation and beta residuals, quote-volume/count/buy-ratio relative features, "
-        "and ETH-vs-BTC futures basis change/spread features. ETH target model remains unchanged from v1."
+        "and exact duplicate feature pruning with no duplicated raw futures market features"
     ),
 }
 def parse_symbols(value: str) -> tuple[str, ...]:
@@ -69,9 +64,8 @@ def read_1m(
     path: Path,
     dataset_start: pd.Timestamp | None = None,
     target_horizon_minutes: int = DEFAULT_TARGET_HORIZON_MINUTES,
+    include_live_overlay: bool = True,
 ) -> pd.DataFrame:
-    if not path.exists():
-        raise FileNotFoundError(path)
     columns = [
         "open_time",
         "open",
@@ -87,10 +81,12 @@ def read_1m(
     ]
     live_path = path.with_name("1m_live.csv")
     warmup_minutes = max(WINDOWS + ROLLING_WINDOWS) + target_horizon_minutes + 5
-    live_frame = pd.read_csv(live_path, usecols=columns) if live_path.exists() else None
+    live_frame = pd.read_csv(live_path, usecols=columns) if include_live_overlay and live_path.exists() else None
     if live_frame is not None and live_frame_covers_warmup(live_frame, warmup_minutes):
         frame = live_frame.sort_values("open_time").tail(warmup_minutes + 1)
     else:
+        if not path.exists():
+            raise FileNotFoundError(path)
         frame = pd.read_csv(path, usecols=columns)
         if live_frame is not None:
             frame = pd.concat([frame, live_frame], ignore_index=True)
@@ -375,72 +371,6 @@ def add_spot_futures_features(spot: pd.DataFrame, futures: pd.DataFrame, prefix:
     return out
 
 
-def add_btc_eth_cross_features(
-    btc_spot: pd.DataFrame,
-    btc_futures: pd.DataFrame,
-    eth_spot: pd.DataFrame,
-    eth_futures: pd.DataFrame,
-) -> pd.DataFrame:
-    prefix = "BTC_cross_ETH"
-    out = pd.DataFrame(index=btc_spot.index)
-
-    btc_spot_log = np.log(btc_spot["close"])
-    eth_spot_log = np.log(eth_spot["close"])
-    btc_futures_log = np.log(btc_futures["close"])
-    eth_futures_log = np.log(eth_futures["close"])
-    btc_ret_1m = btc_spot_log.diff()
-    eth_ret_1m = eth_spot_log.diff()
-
-    btc_quote_volume = btc_spot["quote_volume"]
-    eth_quote_volume = eth_spot["quote_volume"]
-    btc_count = btc_spot["count"]
-    eth_count = eth_spot["count"]
-    btc_buy_ratio = safe_div(btc_spot["taker_buy_volume"], btc_spot["volume"])
-    eth_buy_ratio = safe_div(eth_spot["taker_buy_volume"], eth_spot["volume"])
-    btc_basis = btc_futures["close"] / btc_spot["close"] - 1.0
-    eth_basis = eth_futures["close"] / eth_spot["close"] - 1.0
-    basis_spread = eth_basis - btc_basis
-
-    for window in WINDOWS:
-        btc_spot_ret = btc_spot_log.diff(window)
-        eth_spot_ret = eth_spot_log.diff(window)
-        btc_futures_ret = btc_futures_log.diff(window)
-        eth_futures_ret = eth_futures_log.diff(window)
-        out[f"{prefix}_eth_spot_log_ret_{window}m"] = eth_spot_ret
-        out[f"{prefix}_eth_minus_btc_spot_log_ret_{window}m"] = eth_spot_ret - btc_spot_ret
-        out[f"{prefix}_eth_minus_btc_futures_log_ret_{window}m"] = eth_futures_ret - btc_futures_ret
-
-    for window in ROLLING_WINDOWS:
-        btc_realized_vol = btc_ret_1m.pow(2).rolling(window, min_periods=window).sum().pow(0.5)
-        eth_realized_vol = eth_ret_1m.pow(2).rolling(window, min_periods=window).sum().pow(0.5)
-        btc_eth_cov = btc_ret_1m.rolling(window, min_periods=window).cov(eth_ret_1m)
-        eth_var = eth_ret_1m.rolling(window, min_periods=window).var()
-        btc_on_eth_beta = safe_div(btc_eth_cov, eth_var)
-        out[f"{prefix}_spot_ret_corr_{window}m"] = btc_ret_1m.rolling(window, min_periods=window).corr(
-            eth_ret_1m
-        )
-        out[f"{prefix}_btc_on_eth_beta_{window}m"] = btc_on_eth_beta
-        out[f"{prefix}_btc_ret_beta_resid_1m_{window}m"] = btc_ret_1m - btc_on_eth_beta * eth_ret_1m
-        out[f"{prefix}_eth_btc_realized_vol_ratio_{window}m"] = safe_div(
-            eth_realized_vol, btc_realized_vol
-        ) - 1.0
-        out[f"{prefix}_quote_volume_z_diff_{window}m"] = zscore(eth_quote_volume, window) - zscore(
-            btc_quote_volume, window
-        )
-        out[f"{prefix}_count_z_diff_{window}m"] = zscore(eth_count, window) - zscore(btc_count, window)
-        out[f"{prefix}_buy_ratio_mean_diff_{window}m"] = eth_buy_ratio.rolling(
-            window, min_periods=window
-        ).mean() - btc_buy_ratio.rolling(window, min_periods=window).mean()
-        out[f"{prefix}_basis_spread_z_{window}m"] = zscore(basis_spread, window)
-
-    for window in (1, 5, 15, 60):
-        out[f"{prefix}_eth_basis_change_{window}m"] = eth_basis.diff(window)
-        out[f"{prefix}_eth_minus_btc_basis_change_{window}m"] = eth_basis.diff(window) - btc_basis.diff(window)
-        out[f"{prefix}_basis_spread_change_{window}m"] = basis_spread.diff(window)
-
-    return out
-
-
 def add_time_features(index: pd.DatetimeIndex) -> pd.DataFrame:
     out = pd.DataFrame(index=index)
     out["sin_hour"] = np.sin(2.0 * np.pi * index.hour / 24.0)
@@ -474,6 +404,7 @@ def build_dataset(
     sample_minutes: int,
     target_tie_policy: str,
     feature_set: str = "v1",
+    include_live_overlay: bool = True,
 ) -> pd.DataFrame:
     if target_tie_policy not in {"drop", "down", "expected"}:
         raise ValueError("target_tie_policy must be 'drop', 'down', or 'expected'.")
@@ -493,8 +424,8 @@ def build_dataset(
     for symbol in symbols:
         futures_path = data_root / futures_market / symbol / "1m.csv.gz"
         spot_path = data_root / market / symbol / "1m.csv.gz"
-        futures = read_1m(futures_path, dataset_start, target_horizon_minutes)
-        spot = read_1m(spot_path, dataset_start, target_horizon_minutes)
+        futures = read_1m(futures_path, dataset_start, target_horizon_minutes, include_live_overlay)
+        spot = read_1m(spot_path, dataset_start, target_horizon_minutes, include_live_overlay)
         price_source_by_symbol[symbol] = market
         spot_frames[symbol] = spot
         futures_frames[symbol] = futures
@@ -516,19 +447,12 @@ def build_dataset(
         ]
         if price_source_by_symbol[symbol] == market:
             symbol_parts.insert(1, add_spot_futures_features(spot, futures, prefix, market_feature_set))
-        if feature_set == "v2" and symbol == "BTCUSDT":
-            if "ETHUSDT" not in symbols:
-                raise ValueError("feature_set v2 requires ETHUSDT in --symbols for BTC cross features.")
-            eth_spot = spot_frames["ETHUSDT"].loc[common_index]
-            eth_futures = futures_frames["ETHUSDT"].loc[common_index]
-            symbol_parts.append(add_btc_eth_cross_features(spot, futures, eth_spot, eth_futures))
         parts.extend(symbol_parts)
 
     parts = [part for part in parts if part is not None]
     frame = pd.concat(parts, axis=1)
     frame = pd.concat([frame, add_time_features(frame.index)], axis=1)
     frame, duplicate_feature_columns = drop_exact_duplicate_columns(frame)
-    btc_cross_feature_columns = [column for column in frame.columns if column.startswith("BTC_cross_ETH_")]
 
     horizon_steps = target_horizon_minutes
     exact_horizon_time = pd.Series(frame.index, index=frame.index).shift(-horizon_steps)
@@ -578,7 +502,6 @@ def build_dataset(
     frame.attrs["target_tie_counts"] = target_tie_counts
     frame.attrs["target_tie_policy"] = target_tie_policy
     frame.attrs["feature_set"] = feature_set
-    frame.attrs["btc_cross_feature_columns"] = btc_cross_feature_columns
     frame.attrs["duplicate_feature_columns_removed"] = duplicate_feature_columns
     frame.attrs["all_nan_feature_columns_removed"] = all_nan_feature_columns_removed
     return frame

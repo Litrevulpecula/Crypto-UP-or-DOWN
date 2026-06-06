@@ -3,12 +3,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Any
+
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 
 import lightgbm as lgb
 import numpy as np
@@ -24,9 +27,10 @@ if str(HIBT_DIR) not in sys.path:
 
 import lightgbm_5m_direction_btc_eth as base  # noqa: E402
 from hibt_config import normalize_symbol  # noqa: E402
+from log_colors import colorize_line  # noqa: E402
 
 
-DEFAULT_MODEL_DIRS = {"5m": LIVE_DIR / "models_5m", "15m": LIVE_DIR / "models_15m"}
+DEFAULT_MODEL_DIRS = {"15m": LIVE_DIR / "models_15m"}
 MODEL_BUNDLE_CACHE: dict[tuple[Path, tuple[str, ...]], dict[str, Any]] = {}
 BASE_OPEN_TIME_CACHE: dict[Path, pd.Timestamp | None] = {}
 
@@ -120,12 +124,6 @@ def build_live_feature_frame(
             base.add_spot_futures_features(spot, futures, prefix, market_feature_set),
             spot[["close"]].rename(columns={"close": f"{prefix}_spot_close"}),
         ]
-        if feature_set == "v2" and symbol == "BTCUSDT":
-            if "ETHUSDT" not in symbols:
-                raise ValueError("feature_set v2 requires ETHUSDT in --symbols for BTC cross features.")
-            eth_spot = spot_frames["ETHUSDT"].loc[common_index]
-            eth_futures = futures_frames["ETHUSDT"].loc[common_index]
-            symbol_parts.append(base.add_btc_eth_cross_features(spot, futures, eth_spot, eth_futures))
         parts.extend(symbol_parts)
 
     frame = pd.concat(parts, axis=1)
@@ -142,14 +140,19 @@ def build_live_feature_frame(
     return frame.dropna()
 
 
-def latest_dataset_start(data_root: Path, symbols: tuple[str, ...], lookback_days: float | None) -> pd.Timestamp | None:
+def latest_dataset_start(
+    data_root: Path,
+    symbols: tuple[str, ...],
+    lookback_days: float | None,
+    prefer_live_overlay: bool = True,
+) -> pd.Timestamp | None:
     if lookback_days is None or lookback_days <= 0:
         return None
     latest: pd.Timestamp | None = None
     for market in (base.SPOT_MARKET, base.FUTURES_MARKET):
         for symbol in symbols:
             path = data_root / market / symbol / "1m.csv.gz"
-            current = latest_open_time(path)
+            current = latest_open_time(path, prefer_live_overlay)
             if current is None:
                 continue
             latest = current if latest is None else min(latest, current)
@@ -158,9 +161,11 @@ def latest_dataset_start(data_root: Path, symbols: tuple[str, ...], lookback_day
     return latest - pd.Timedelta(days=float(lookback_days))
 
 
-def latest_open_time(path: Path) -> pd.Timestamp | None:
-    base_latest = read_latest_open_time(path, cache=True)
+def latest_open_time(path: Path, prefer_live_overlay: bool = True) -> pd.Timestamp | None:
     live_latest = read_latest_open_time(path.with_name("1m_live.csv"), cache=False)
+    if prefer_live_overlay and live_latest is not None:
+        return live_latest
+    base_latest = read_latest_open_time(path, cache=True)
     if base_latest is None:
         return live_latest
     if live_latest is None:
@@ -246,15 +251,25 @@ def signal_for_prediction(
     }
 
 
-def generate_signals(args: argparse.Namespace) -> dict[str, Any]:
+def generate_signals(
+    args: argparse.Namespace,
+    target_decision_times: dict[str, pd.Timestamp] | None = None,
+) -> dict[str, Any]:
     symbols = base.parse_symbols(args.symbols)
     model_dirs = parse_model_dirs(args.model_dir)
-    now = datetime.now(timezone.utc)
+    if target_decision_times is None:
+        selected_model_dirs = model_dirs
+    else:
+        selected_model_dirs = {
+            timeframe: model_dirs[timeframe]
+            for timeframe in target_decision_times
+            if timeframe in model_dirs
+        }
     signals = []
     diagnostics = []
     dataset_start = latest_dataset_start(args.data_root, symbols, args.lookback_days)
 
-    for timeframe, model_dir in sorted(model_dirs.items(), key=lambda item: timeframe_minutes(item[0])):
+    for timeframe, model_dir in sorted(selected_model_dirs.items(), key=lambda item: timeframe_minutes(item[0])):
         minutes = timeframe_minutes(timeframe)
         bundle = load_model_bundle(model_dir, symbols)
         model_feature_set = bundle["metadata"].get("feature_set", args.feature_set)
@@ -263,8 +278,8 @@ def generate_signals(args: argparse.Namespace) -> dict[str, Any]:
             raise RuntimeError(f"No live feature rows generated for {timeframe}.")
         row = frame.iloc[[-1]]
         decision_time = pd.Timestamp(row.index[-1])
-        age_seconds = (pd.Timestamp(now) - decision_time).total_seconds()
-        stale = args.max_data_age_seconds > 0 and age_seconds > args.max_data_age_seconds
+        target_decision_time = None if target_decision_times is None else target_decision_times.get(timeframe)
+        target_ready = target_decision_time is None or decision_time == target_decision_time
 
         for symbol in symbols:
             columns = bundle["features"][symbol]
@@ -273,7 +288,7 @@ def generate_signals(args: argparse.Namespace) -> dict[str, Any]:
                 raise RuntimeError(f"{timeframe} {symbol} missing feature columns: {missing[:10]}")
             probability_up = float(bundle["boosters"][symbol].predict(row[columns])[0])
             signal = None
-            if not stale:
+            if target_ready:
                 signal = signal_for_prediction(
                     symbol,
                     timeframe,
@@ -291,8 +306,10 @@ def generate_signals(args: argparse.Namespace) -> dict[str, Any]:
                     "timeframe": timeframe,
                     "feature_set": model_feature_set,
                     "decision_time": decision_time.tz_convert("UTC").isoformat(),
-                    "age_seconds": float(age_seconds),
-                    "stale": bool(stale),
+                    "target_decision_time": None
+                    if target_decision_time is None
+                    else target_decision_time.tz_convert("UTC").isoformat(),
+                    "decision_time_matches_target": bool(target_ready),
                     "prob_up": probability_up,
                     "short_threshold": float(bundle["thresholds"][symbol]["short_threshold"]),
                     "long_threshold": float(bundle["thresholds"][symbol]["long_threshold"]),
@@ -301,7 +318,7 @@ def generate_signals(args: argparse.Namespace) -> dict[str, Any]:
             )
 
     return {
-        "generated_at": now.isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "source": "lightgbm_live_signal_writer",
         "signals": sorted(signals, key=lambda item: (item["timestamp"], item["symbol"], item["timeframe"])),
         "diagnostics": diagnostics,
@@ -326,6 +343,76 @@ def parse_utc_timestamp(value: str | None) -> pd.Timestamp | None:
     return timestamp.tz_convert("UTC")
 
 
+def due_decision_times(timeframes: list[str], decision_time: pd.Timestamp) -> dict[str, pd.Timestamp]:
+    due = {}
+    index = pd.DatetimeIndex([decision_time])
+    for timeframe in timeframes:
+        if base.aligned_decision_time_mask(index, timeframe_minutes(timeframe))[0]:
+            due[timeframe] = decision_time
+    return due
+
+
+def targets_are_ready(payload: dict[str, Any], target_decision_times: dict[str, pd.Timestamp]) -> bool:
+    expected = {
+        timeframe: decision_time.tz_convert("UTC").isoformat()
+        for timeframe, decision_time in target_decision_times.items()
+    }
+    ready = set()
+    for diagnostic in payload.get("diagnostics", []):
+        timeframe = normalize_timeframe(diagnostic.get("timeframe"))
+        if timeframe in expected and diagnostic.get("decision_time") == expected[timeframe]:
+            ready.add(timeframe)
+    return set(expected) == ready
+
+
+def live_overlay_covers_decision(
+    data_root: Path,
+    market: str,
+    symbol: str,
+    decision_time: pd.Timestamp,
+    warmup_minutes: int,
+) -> bool:
+    path = data_root / market / symbol / "1m_live.csv"
+    if not path.exists():
+        return False
+    target_open_time = decision_time - pd.Timedelta(minutes=1)
+    target_open_ms = int(target_open_time.timestamp() * 1000)
+    open_times = pd.read_csv(path, usecols=["open_time"])["open_time"]
+    open_times = pd.to_numeric(open_times, errors="coerce").dropna().astype("int64").sort_values()
+    tail = open_times[open_times <= target_open_ms].tail(warmup_minutes + 1)
+    if len(tail) < warmup_minutes + 1:
+        return False
+    return bool(tail.iloc[-1] == target_open_ms and tail.diff().dropna().eq(60_000).all())
+
+
+def target_data_ready(
+    args: argparse.Namespace,
+    symbols: tuple[str, ...],
+    target_decision_times: dict[str, pd.Timestamp],
+) -> tuple[bool, list[str]]:
+    missing = []
+    for timeframe, decision_time in target_decision_times.items():
+        warmup_minutes = max(base.WINDOWS + base.ROLLING_WINDOWS) + timeframe_minutes(timeframe) + 5
+        for symbol in symbols:
+            for market in (base.SPOT_MARKET, base.FUTURES_MARKET):
+                if not live_overlay_covers_decision(args.data_root, market, symbol, decision_time, warmup_minutes):
+                    missing.append(f"{timeframe}:{market}:{symbol}")
+    return not missing, missing
+
+
+def write_and_log_payload(path: Path, payload: dict[str, Any], extra: str = "") -> float:
+    start = time.perf_counter()
+    write_payload(path, payload)
+    write_ms = (time.perf_counter() - start) * 1000.0
+    suffix = f" {extra}" if extra else ""
+    message = (
+        f"wrote {len(payload['signals'])} signals to {path} "
+        f"generated_at={payload['generated_at']} write_ms={write_ms:.3f}{suffix}"
+    )
+    print(colorize_line(message), flush=True)
+    return write_ms
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate Polymarket/HiBT signals from latest LightGBM live models.")
     parser.add_argument("--data-root", type=Path, default=Path("aligned_data_oos"))
@@ -334,22 +421,12 @@ def main() -> int:
     parser.add_argument("--symbols", default=",".join(base.SYMBOLS))
     parser.add_argument("--feature-set", choices=base.FEATURE_SETS, default="v1", help="Fallback when model metadata has no feature_set.")
     parser.add_argument("--lookback-days", type=float, default=1.0)
-    parser.add_argument("--max-data-age-seconds", type=float, default=240.0)
-    parser.add_argument("--poll-seconds", type=float, default=30.0)
     parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
 
-    while True:
-        payload = generate_signals(args)
-        write_payload(args.signal_file, payload)
-        print(
-            f"wrote {len(payload['signals'])} signals to {args.signal_file} "
-            f"generated_at={payload['generated_at']}",
-            flush=True,
-        )
-        if args.once:
-            return 0
-        time.sleep(args.poll_seconds)
+    payload = generate_signals(args)
+    write_and_log_payload(args.signal_file, payload)
+    return 0
 
 
 if __name__ == "__main__":

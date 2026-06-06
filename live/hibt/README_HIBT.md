@@ -1,6 +1,8 @@
 # HiBT Web Runner
 
-监听 `signals.json` 信号文件，自动打开 HiBT 事件合约页面，选择 BTC 或 ETH，匹配信号对应的 3 分钟或 5 分钟时间框，填入 3 USDT，根据信号方向执行买涨或买跌。每个信号仅执行一次。
+HiBT 是独立的网页自动化 runner。HiBT 页面支持 3/5/10/15 分钟周期；当前实盘默认只挂 15m，因为当前已选模型是 `live/models_15m`。
+
+监听 `live/hibt/signals.json` 信号文件，自动打开 HiBT 事件合约页面，选择 BTC 或 ETH，匹配信号周期，填入 3 USDT，根据信号方向执行买涨或买跌。每个信号仅执行一次。
 
 ## 目录结构
 
@@ -27,7 +29,7 @@ live/
 ## 本地安装
 
 ```bash
-cd ~/Crypto_UP_or_DOWN/live
+cd ~/Crypto_UP_or_DOWN/live/hibt
 pip install -r requirements_hibt.txt
 ```
 
@@ -43,11 +45,11 @@ python3 run_hibt_live.py --config hibt_config.example.json --login
 
 ## 信号文件格式
 
-由 `write_lightgbm_signals.py` 生成：
+实盘由 `run_hibt_stack.py` 中的 kline 更新回调生成，默认只使用 `15m=live/models_15m`；`write_lightgbm_signals.py` 仅用于单次生成/调试：
 
 ```bash
-python3 write_lightgbm_signals.py --once   # 单次
-python3 write_lightgbm_signals.py          # 持续更新
+cd ~/Crypto_UP_or_DOWN
+.venv/bin/python live/write_lightgbm_signals.py --signal-file live/hibt/signals.json --model-dir 15m=live/models_15m --once
 ```
 
 `signals.json` 示例：
@@ -56,7 +58,7 @@ python3 write_lightgbm_signals.py          # 持续更新
 {
   "signal_id": "btc-20260605-123000",
   "symbol": "BTC-USDT",
-  "timeframe": "5m",
+  "timeframe": "15m",
   "signal": "BUY",
   "confidence": 0.73,
   "timestamp": "2026-06-05T12:30:00+08:00"
@@ -72,11 +74,13 @@ python3 write_lightgbm_signals.py          # 持续更新
 ## 运行模式
 
 ```bash
-# 模拟运行 (dry run) — 验证页面但不点击交易
+# 单次模拟运行 (dry run) — 验证页面但不点击交易
+cd ~/Crypto_UP_or_DOWN/live/hibt
 python3 run_hibt_live.py --config hibt_config.example.json --once
 
-# 实盘模式
-python3 run_hibt_live.py --config hibt_config.example.json --live --confirm-order
+# 自动 15m stack：kline 更新 + 15m 信号 + HiBT runner
+cd ~/Crypto_UP_or_DOWN
+.venv/bin/python live/run_hibt_stack.py --data-root aligned_data_oos --signal-model-dir 15m=live/models_15m --hibt-config live/hibt/hibt_config.example.json
 ```
 
 | 参数 | 作用 |
@@ -92,7 +96,7 @@ python3 run_hibt_live.py --config hibt_config.example.json --live --confirm-orde
 ### 第一步：本地登录
 
 ```bash
-cd ~/Crypto_UP_or_DOWN/live
+cd ~/Crypto_UP_or_DOWN/live/hibt
 python3 run_hibt_live.py --config hibt_config.example.json --login
 # Chrome 弹出后手动登录 hibt.com，完成后 Ctrl+C
 ```
@@ -100,14 +104,17 @@ python3 run_hibt_live.py --config hibt_config.example.json --login
 ### 第二步：首次部署（安装 Chrome + 环境）
 
 ```bash
+cd ~/Crypto_UP_or_DOWN/live/hibt
 ./deploy_to_vps.sh --setup
 ```
 
-会在 VPS 上安装 Google Chrome Stable、Xvfb、Python venv，并配置 systemd 服务。
+会在 VPS 上安装 Google Chrome Stable、Xvfb、Python venv，并配置 15m HiBT stack 的 systemd 服务。
+服务默认读取 `$REMOTE_DIR/aligned_data_oos`；如果数据在其它目录，运行 setup 前设置 `DATA_ROOT=/path/to/aligned_data_oos`。
 
 ### 第三步：同步登录态
 
 ```bash
+cd ~/Crypto_UP_or_DOWN/live/hibt
 ./sync_profile_to_vps.sh
 ```
 
@@ -123,6 +130,7 @@ ssh root@47.79.32.65 'journalctl -u hibt-trader -f'
 ### 日常更新
 
 ```bash
+cd ~/Crypto_UP_or_DOWN/live/hibt
 ./deploy_to_vps.sh                                        # 推送代码
 ssh root@47.79.32.65 'systemctl restart hibt-trader'      # 重启服务
 ```
@@ -132,6 +140,7 @@ ssh root@47.79.32.65 'systemctl restart hibt-trader'      # 重启服务
 如果 VPS 上登录态失效（报 "not logged in"），在本地重新登录再同步：
 
 ```bash
+cd ~/Crypto_UP_or_DOWN/live/hibt
 python3 run_hibt_live.py --config hibt_config.example.json --login
 # 重新登录后 Ctrl+C
 ./sync_profile_to_vps.sh
@@ -155,13 +164,13 @@ ssh root@47.79.32.65 'systemctl restart hibt-trader'
 | # | 防护项 | 说明 |
 |---|--------|------|
 | 1 | navigator.webdriver | delete + redefine → undefined |
-| 2 | navigator 属性 | languages/platform/cores/memory/vendor/appVersion/maxTouchPoints |
+| 2 | navigator 属性 | userAgent/appVersion 跟随真实 Chrome；languages/platform/cores/memory/vendor/maxTouchPoints |
 | 3 | window.chrome | 补全 runtime/app/csi/loadTimes 对象 |
 | 4 | Screen 属性 | width/height/colorDepth/availWidth/outerWidth 全一致 |
 | 5 | Permissions.query | 修复 notifications 与 Notification.permission 不一致破绽 |
 | 6 | WebGL | 伪装 vendor/renderer 为真实 GPU |
-| 7 | Canvas 噪声 | toDataURL/toBlob/getImageData 加 seeded 微量像素扰动 |
-| 8 | AudioContext 噪声 | getFloatFrequencyData/copyFromChannel 微量扰动 |
+| 7 | Canvas 噪声 | toDataURL/toBlob/getImageData 加 profile 固定 seed 的微量像素扰动 |
+| 8 | AudioContext 噪声 | getFloatFrequencyData/copyFromChannel 加 profile 固定 seed 的微量扰动 |
 | 9 | WebRTC | 清空 iceServers + Chromium flag 双重阻止 IP 泄露 |
 | 10 | navigator.connection | 补充 Network Information API |
 | 11 | Plugins | 5 个真实 Chrome PDF 插件 |
@@ -175,12 +184,12 @@ ssh root@47.79.32.65 'systemctl restart hibt-trader'
 
 | 对抗点 | 方案 |
 |--------|------|
-| 鼠标轨迹 | 三阶贝塞尔曲线 (12-35个采样点)，非直线移动 |
-| 键盘输入 | 逐字打字，55-165ms 随机延迟 |
+| 鼠标轨迹 | 三阶贝塞尔曲线 (8-18个采样点)，每步 1-3ms |
+| 键盘输入 | 逐字打字，5-20ms 随机延迟 |
 | 点击位置 | 元素区域 25%-75% 随机取点，非中心 |
-| 点击时长 | mousedown→mouseup 间 40-120ms 随机延迟 |
+| 点击时长 | mousedown→mouseup 间 10-35ms 随机延迟 |
 | 视口尺寸 | 每次启动 ±3px 随机抖动 |
-| 操作间隔 | 0.25-1.1s 随机延迟 |
+| 操作间隔 | 0.03-0.12s 随机延迟；页面 settle 0.05-0.15s |
 
 ### 已知局限
 

@@ -1,74 +1,84 @@
 {
   "BTCUSDT": {
-    "best_value": 12.122116422414143,
+    "source": "results/v1_5m_full_decay/optuna_best_params.json",
+    "live_optuna_search": false,
+    "source_trials": 40,
+    "best_value": 14.35205785730635,
     "best_params": {
       "n_estimators": 2000,
-      "learning_rate": 0.018228251054233664,
-      "num_leaves": 48,
-      "min_child_samples": 200,
-      "subsample": 0.558233797718321,
+      "learning_rate": 0.01982771216208506,
+      "num_leaves": 40,
+      "min_child_samples": 60,
+      "subsample": 0.8646606133217127,
       "subsample_freq": 1,
-      "colsample_bytree": 0.9379639408647977,
-      "reg_alpha": 0.6715811311069951,
-      "reg_lambda": 3.06459984124115e-05,
+      "colsample_bytree": 0.6020224878138668,
+      "reg_alpha": 5.2568658843619244e-05,
+      "reg_lambda": 3.771908557200682e-07,
       "objective": "binary",
       "random_state": 42,
       "verbosity": -1
     },
     "best_user_attrs": {
-      "best_iteration": 407,
-      "validation_auc": 0.5461608902874959,
+      "best_iteration": 139,
+      "validation_auc": 0.5565956142125397,
       "validation_thresholds": {
         "mode": "double",
-        "threshold": 0.495,
-        "short_threshold": 0.41000000000000003,
-        "long_threshold": 0.58,
-        "sharpe": 12.122116422414143,
-        "pnl": 128.3,
-        "trades": 886,
-        "trade_fraction": 0.05127018112377756,
-        "win_rate": 0.6361581920903955,
+        "threshold": 0.5,
+        "short_threshold": 0.44,
+        "long_threshold": 0.56,
+        "sharpe": 14.35205785730635,
+        "pnl": 252.90000000000006,
+        "trades": 2430,
+        "trade_fraction": 0.14063313849181086,
+        "win_rate": 0.6134211609715933,
         "tie_trades": 1,
-        "tie_trade_fraction": 5.786702158439905e-05,
-        "min_trades": 865
-      }
+        "tie_trade_fraction": 5.787371954395509e-05,
+        "min_trades": 864
+      },
+      "validation_sharpe": 14.35205785730635,
+      "validation_pnl": 252.90000000000006
     },
-    "trials": 40
+    "trials": 0
   },
   "ETHUSDT": {
-    "best_value": 10.244172802725544,
+    "source": "results/v1_5m_full_decay/optuna_best_params.json",
+    "live_optuna_search": false,
+    "source_trials": 40,
+    "best_value": 11.848920559126384,
     "best_params": {
       "n_estimators": 2000,
-      "learning_rate": 0.01488933285866669,
-      "num_leaves": 48,
-      "min_child_samples": 180,
-      "subsample": 0.788817870015776,
+      "learning_rate": 0.01316682897134904,
+      "num_leaves": 24,
+      "min_child_samples": 220,
+      "subsample": 0.6581272288380232,
       "subsample_freq": 1,
-      "colsample_bytree": 0.6878866950047624,
-      "reg_alpha": 0.022551023122747947,
-      "reg_lambda": 0.03972187600412677,
+      "colsample_bytree": 0.7831761275186675,
+      "reg_alpha": 8.474411829405474,
+      "reg_lambda": 0.0014857830805499273,
       "objective": "binary",
       "random_state": 42,
       "verbosity": -1
     },
     "best_user_attrs": {
-      "best_iteration": 490,
-      "validation_auc": 0.551544583886139,
+      "best_iteration": 568,
+      "validation_auc": 0.5622305433742301,
       "validation_thresholds": {
         "mode": "double",
-        "threshold": 0.48500000000000004,
-        "short_threshold": 0.4,
-        "long_threshold": 0.5700000000000001,
-        "sharpe": 10.244172802725544,
-        "pnl": 113.40000000000003,
-        "trades": 963,
-        "trade_fraction": 0.055725941785776285,
-        "win_rate": 0.6212278876170656,
-        "tie_trades": 2,
-        "tie_trade_fraction": 0.0001157340431687981,
-        "min_trades": 865
-      }
+        "threshold": 0.51,
+        "short_threshold": 0.44,
+        "long_threshold": 0.58,
+        "sharpe": 11.848920559126384,
+        "pnl": 228.10000000000008,
+        "trades": 2894,
+        "trade_fraction": 0.16748654436020602,
+        "win_rate": 0.5998610628690517,
+        "tie_trades": 15,
+        "tie_trade_fraction": 0.0008681057931593264,
+        "min_trades": 864
+      },
+      "validation_sharpe": 11.848920559126384,
+      "validation_pnl": 228.10000000000008
     },
-    "trials": 40
+    "trials": 0
   }
 }

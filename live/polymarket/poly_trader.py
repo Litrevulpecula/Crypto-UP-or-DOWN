@@ -6,11 +6,20 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+
+LIVE_DIR = Path(__file__).resolve().parent
+PARENT_DIR = LIVE_DIR.parent
+if str(PARENT_DIR) not in sys.path:
+    sys.path.insert(0, str(PARENT_DIR))
+
+from log_colors import configure_colored_logging  # noqa: E402
 
 try:
     from py_clob_client_v2.client import ClobClient
@@ -29,10 +38,9 @@ try:
 except ImportError:
     from .poly_market_finder import find_crypto_market, outcome_token_map, parse_utc_timestamp, summarize_market
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+configure_colored_logging(logging.INFO)
 log = logging.getLogger(__name__)
 
-LIVE_DIR = Path(__file__).resolve().parent
 HOST = "https://clob.polymarket.com"
 CHAIN_ID = 137  # Polygon
 BUY_SIGNALS = {"BUY", "UP", "LONG", "CALL", "BULL", "RISE", "1"}
@@ -56,7 +64,11 @@ class PolyConfig:
     max_price: float = 0.544
     use_market_fee_rate: bool = True
     default_taker_fee_rate_bps: int = 700
-    poll_seconds: float = 2.0
+    poll_seconds: float = 0.1
+    entry_watch_seconds: float = 4.0
+    entry_watch_poll_seconds: float = 0.25
+    limit_order_watch_seconds: float = 4.0
+    limit_order_watch_poll_seconds: float = 0.25
     dry_run: bool = True
     auto_resolve_markets: bool = True
     gamma_api_url: str = "https://gamma-api.polymarket.com"
@@ -102,7 +114,9 @@ class PolyTrader:
         self.config = config
         self.client: ClobClient | None = None
         self._consumed_ids: set[str] = set()
+        self._last_signal_signature: tuple[int, int] | None = None
         self._market_cache: dict[tuple[str, str, str], dict[str, Any]] = {}
+        self._fee_rate_cache: dict[str, int] = {}
         self._load_state()
 
     def connect(self) -> None:
@@ -227,14 +241,32 @@ class PolyTrader:
             log.warning("Failed to get price for %s: %s", token_id[:12], e)
         return None
 
-    def get_taker_fee_rate_bps(self, token_id: str) -> int:
-        if not self.config.use_market_fee_rate:
-            return int(self.config.default_taker_fee_rate_bps)
+    def get_book_prices(self, token_id: str) -> tuple[float | None, float | None]:
         try:
-            return int(self.client.get_fee_rate_bps(token_id))
+            book = self.client.get_order_book(token_id)
+            bid = float(book.bids[0].price) if book and book.bids else None
+            ask = float(book.asks[0].price) if book and book.asks else None
+            return bid, ask
+        except Exception as e:
+            log.warning("Failed to get book for %s: %s", token_id[:12], e)
+            return None, None
+
+    def get_taker_fee_rate_bps(self, token_id: str) -> int:
+        cached = self._fee_rate_cache.get(token_id)
+        if cached is not None:
+            return cached
+        if not self.config.use_market_fee_rate:
+            value = int(self.config.default_taker_fee_rate_bps)
+            self._fee_rate_cache[token_id] = value
+            return value
+        try:
+            value = int(self.client.get_fee_rate_bps(token_id))
+            self._fee_rate_cache[token_id] = value
+            return value
         except Exception as e:
             fallback = int(self.config.default_taker_fee_rate_bps)
             log.warning("Failed to get market fee rate for %s: %s; using fallback %d bps", token_id[:12], e, fallback)
+            self._fee_rate_cache[token_id] = fallback
             return fallback
 
     def _place_limit_order(self, token_id: str, price: float, size: float, fee_rate_bps: int) -> str | None:
@@ -298,8 +330,10 @@ class PolyTrader:
         initial_ask: float,
         taker_fee_rate_bps: int,
     ) -> dict | None:
-        """监控限价单，ask 上跳时吃掉未成交部分"""
+        """Watch a posted limit order briefly; take the ask if it moves inside max_price."""
         cfg = self.config
+        deadline = time.monotonic() + max(0.0, float(cfg.limit_order_watch_seconds))
+        poll_seconds = max(0.05, float(cfg.limit_order_watch_poll_seconds))
 
         while True:
             status, matched = self._get_order_status(order_id)
@@ -308,36 +342,91 @@ class PolyTrader:
             if status in ("CANCELED", "EXPIRED"):
                 return None
 
-            ask = self.get_market_price(token_id)
-            if ask and ask > initial_ask:
+            _bid, ask = self.get_book_prices(token_id)
+            if ask:
+                ask_all_in = buy_all_in_price(ask, taker_fee_rate_bps)
+            else:
+                ask_all_in = None
+            if ask and ask_all_in is not None and ask_all_in <= cfg.max_price:
                 self._cancel_order(order_id)
                 remaining = total_size - matched
                 if remaining <= 0:
                     return {"status": "filled_limit", "price": limit_price, "size": matched}
-                ask_all_in = buy_all_in_price(ask, taker_fee_rate_bps)
-                if ask_all_in <= cfg.max_price:
-                    remaining_usdc = remaining * ask
-                    log.info(
-                        "Ask jumped %.3f -> %.3f all_in=%.5f fee_bps=%d, market buy remaining %.2f shares ($%.2f)",
-                        initial_ask,
-                        ask,
-                        ask_all_in,
-                        taker_fee_rate_bps,
-                        remaining,
-                        remaining_usdc,
-                    )
-                    result = self._place_market_order(token_id, remaining_usdc, taker_fee_rate_bps)
-                    return {"status": "filled_mixed", "limit_price": limit_price,
-                            "limit_filled": matched, "market_price": ask, "market_all_in_price": ask_all_in,
-                            "taker_fee_rate_bps": taker_fee_rate_bps, "market_result": result}
-                else:
-                    log.info("Ask jumped to %.3f all_in=%.5f > max %.3f, keep limit fill only",
-                             ask, ask_all_in, cfg.max_price)
-                    if matched > 0:
-                        return {"status": "partial_limit", "price": limit_price, "size": matched}
-                    return None
+                remaining_usdc = remaining * ask
+                log.info(
+                    "TAKE ask %.3f -> %.3f all_in=%.5f fee_bps=%d remaining=%.2f shares amount=%.2f",
+                    initial_ask,
+                    ask,
+                    ask_all_in,
+                    taker_fee_rate_bps,
+                    remaining,
+                    remaining_usdc,
+                )
+                result = self._place_market_order(token_id, remaining_usdc, taker_fee_rate_bps)
+                return {
+                    "status": "filled_mixed",
+                    "limit_price": limit_price,
+                    "limit_filled": matched,
+                    "market_price": ask,
+                    "market_all_in_price": ask_all_in,
+                    "taker_fee_rate_bps": taker_fee_rate_bps,
+                    "market_result": result,
+                }
 
-            time.sleep(2.0)
+            if time.monotonic() >= deadline:
+                self._cancel_order(order_id)
+                status, matched = self._get_order_status(order_id)
+                if matched > 0:
+                    return {"status": "partial_limit", "price": limit_price, "size": matched}
+                log.info(
+                    "WATCH timeout %.2fs cancel limit price=%.3f last_ask=%s max=%.3f",
+                    cfg.limit_order_watch_seconds,
+                    limit_price,
+                    "NA" if ask is None else f"{ask:.3f}",
+                    cfg.max_price,
+                )
+                return None
+
+            time.sleep(poll_seconds)
+
+    def _classify_entry_quote(
+        self,
+        bid: float | None,
+        ask: float | None,
+        taker_fee_rate_bps: int,
+    ) -> dict[str, Any] | None:
+        cfg = self.config
+        ask_all_in = None if ask is None else buy_all_in_price(ask, taker_fee_rate_bps)
+        if ask is not None and ask_all_in is not None and ask_all_in <= cfg.max_price:
+            return {"mode": "market", "bid": bid, "ask": ask, "ask_all_in": ask_all_in}
+
+        bid_all_in = None if bid is None else buy_all_in_price(bid, taker_fee_rate_bps)
+        if bid is not None and bid_all_in is not None and bid_all_in <= cfg.max_price:
+            return {"mode": "limit", "bid": bid, "ask": ask, "bid_all_in": bid_all_in}
+        return None
+
+    def _wait_for_entry_quote(self, token_id: str, taker_fee_rate_bps: int) -> dict[str, Any] | None:
+        cfg = self.config
+        deadline = time.monotonic() + max(0.0, float(cfg.entry_watch_seconds))
+        poll_seconds = max(0.05, float(cfg.entry_watch_poll_seconds))
+        last_bid = None
+        last_ask = None
+        while True:
+            bid, ask = self.get_book_prices(token_id)
+            last_bid, last_ask = bid, ask
+            entry = self._classify_entry_quote(bid, ask, taker_fee_rate_bps)
+            if entry is not None:
+                return entry
+            if time.monotonic() >= deadline:
+                log.info(
+                    "SKIP entry_watch timeout %.2fs last_bid=%s last_ask=%s max=%.3f",
+                    cfg.entry_watch_seconds,
+                    "NA" if last_bid is None else f"{last_bid:.3f}",
+                    "NA" if last_ask is None else f"{last_ask:.3f}",
+                    cfg.max_price,
+                )
+                return None
+            time.sleep(poll_seconds)
 
     def execute_signal(self, signal: dict[str, Any]) -> bool:
         raw_signal = signal.get("signal", signal.get("side", signal.get("direction", "")))
@@ -353,17 +442,10 @@ class PolyTrader:
             return False
 
         cfg = self.config
-        bid = self.get_best_bid(token_id)
-        ask = self.get_market_price(token_id)
+        taker_fee_rate_bps = self.get_taker_fee_rate_bps(token_id)
+        bid, ask = self.get_book_prices(token_id)
         if bid is None or ask is None:
             log.warning("Cannot get book, skipping")
-            return False
-
-        limit_price = bid
-        taker_fee_rate_bps = self.get_taker_fee_rate_bps(token_id)
-        limit_all_in = buy_all_in_price(limit_price, taker_fee_rate_bps)
-        if limit_all_in > cfg.max_price:
-            log.info("Bid %.3f all_in=%.5f > max %.3f, skip", bid, limit_all_in, cfg.max_price)
             return False
 
         size = float(cfg.order_shares)
@@ -371,37 +453,83 @@ class PolyTrader:
             log.warning("order_shares %.2f < minimum %.2f, skipping", size, MIN_ORDER_SHARES)
             return False
 
-        if cfg.dry_run:
-            ask_all_in = buy_all_in_price(ask, taker_fee_rate_bps)
+        entry = self._classify_entry_quote(bid, ask, taker_fee_rate_bps)
+        if entry is None:
             log.info(
-                "[DRY RUN] %s %s %s shares=%.2f bid=%.3f limit_all_in=%.5f ask=%.3f ask_all_in=%.5f fee_bps=%d",
+                "ENTRY watch %s %s %s bid=%.3f ask=%.3f max=%.3f window=%.2fs",
                 symbol,
                 timeframe or "5m",
                 direction,
-                size,
                 bid,
-                limit_all_in,
                 ask,
-                ask_all_in,
+                cfg.max_price,
+                cfg.entry_watch_seconds,
+            )
+            entry = self._wait_for_entry_quote(token_id, taker_fee_rate_bps)
+            if entry is None:
+                return False
+
+        if cfg.dry_run:
+            ask_all_in = None if entry.get("ask") is None else buy_all_in_price(entry["ask"], taker_fee_rate_bps)
+            bid_all_in = None if entry.get("bid") is None else buy_all_in_price(entry["bid"], taker_fee_rate_bps)
+            log.info(
+                "[DRY RUN] %s %s %s mode=%s shares=%.2f bid=%s bid_all_in=%s ask=%s ask_all_in=%s fee_bps=%d",
+                symbol,
+                timeframe or "5m",
+                direction,
+                entry["mode"],
+                size,
+                "NA" if entry.get("bid") is None else f"{entry['bid']:.3f}",
+                "NA" if bid_all_in is None else f"{bid_all_in:.5f}",
+                "NA" if entry.get("ask") is None else f"{entry['ask']:.3f}",
+                "NA" if ask_all_in is None else f"{ask_all_in:.5f}",
                 taker_fee_rate_bps,
             )
-            self._log_order(signal, token_id, limit_price, {
+            self._log_order(signal, token_id, float(entry.get("bid") or entry.get("ask") or 0.0), {
                 "dry_run": True,
+                "mode": entry["mode"],
                 "order_shares": size,
-                "limit_notional": size * limit_price,
-                "ask_notional": size * ask,
-                "limit_all_in_price": limit_all_in,
+                "limit_notional": None if entry.get("bid") is None else size * entry["bid"],
+                "ask_notional": None if entry.get("ask") is None else size * entry["ask"],
+                "limit_all_in_price": bid_all_in,
                 "ask_all_in_price": ask_all_in,
                 "taker_fee_rate_bps": taker_fee_rate_bps,
             })
             return True
 
-        log.info("Posting limit buy %.2f shares at %.3f (bid=%.3f ask=%.3f)", size, limit_price, bid, ask)
+        if entry["mode"] == "market":
+            amount = size * float(entry["ask"])
+            log.info(
+                "TAKE market buy %.2f shares ask=%.3f all_in=%.5f amount=%.2f",
+                size,
+                entry["ask"],
+                entry["ask_all_in"],
+                amount,
+            )
+            result = self._place_market_order(token_id, amount, taker_fee_rate_bps)
+            if result:
+                self._log_order(
+                    signal,
+                    token_id,
+                    float(entry["ask"]),
+                    {
+                        "status": "filled_market",
+                        "market_price": entry["ask"],
+                        "market_all_in_price": entry["ask_all_in"],
+                        "taker_fee_rate_bps": taker_fee_rate_bps,
+                        "market_result": result,
+                    },
+                )
+                return True
+            return False
+
+        limit_price = float(entry["bid"])
+        log.info("POST limit buy %.2f shares at %.3f (ask=%s)", size, limit_price, "NA" if entry.get("ask") is None else f"{entry['ask']:.3f}")
         order_id = self._place_limit_order(token_id, limit_price, size, taker_fee_rate_bps)
         if not order_id:
             return False
 
-        result = self._wait_and_watch(order_id, token_id, limit_price, size, ask, taker_fee_rate_bps)
+        result = self._wait_and_watch(order_id, token_id, limit_price, size, float(entry.get("ask") or ask), taker_fee_rate_bps)
         if result:
             log.info("Executed: %s", result)
             self._log_order(signal, token_id, limit_price, result)
@@ -410,7 +538,7 @@ class PolyTrader:
         return False
 
     def run_loop(self) -> None:
-        log.info("Starting signal poll loop (interval=%.1fs)", self.config.poll_seconds)
+        log.info("Starting signal poll loop interval=%.3fs", self.config.poll_seconds)
         while True:
             try:
                 self._poll_signals()
@@ -424,7 +552,16 @@ class PolyTrader:
     def _poll_signals(self) -> None:
         sig_path = Path(self.config.signal_path)
         if not sig_path.exists():
+            self._last_signal_signature = None
             return
+        try:
+            stat = sig_path.stat()
+        except OSError:
+            return
+        signature = (stat.st_mtime_ns, stat.st_size)
+        if signature == self._last_signal_signature:
+            return
+        self._last_signal_signature = signature
         try:
             data = json.loads(sig_path.read_text())
         except (json.JSONDecodeError, OSError):
@@ -434,8 +571,17 @@ class PolyTrader:
             sig_id = signal_identifier(sig)
             if not sig_id or sig_id in self._consumed_ids:
                 continue
-            log.info("New signal: %s %s %s %s", sig.get("symbol"), sig.get("timeframe", "5m"), sig.get("signal"), sig_id)
-            self.execute_signal(sig)
+            log.info(
+                "New signal: %s %s %s id=%s",
+                sig.get("symbol"),
+                sig.get("timeframe", "5m"),
+                sig.get("signal"),
+                short_id(sig_id),
+            )
+            start = time.perf_counter()
+            ok = self.execute_signal(sig)
+            elapsed_ms = (time.perf_counter() - start) * 1000.0
+            log.info("DONE signal id=%s ok=%s elapsed_ms=%.1f", short_id(sig_id), ok, elapsed_ms)
             self._consumed_ids.add(sig_id)
             self._save_state()
 

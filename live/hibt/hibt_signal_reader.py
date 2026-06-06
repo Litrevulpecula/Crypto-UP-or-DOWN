@@ -42,6 +42,7 @@ class TradingSignal:
 class SignalReader:
     def __init__(self, path: Path) -> None:
         self.path = path
+        self._last_signature: tuple[int, int] | None = None
 
     def read(self) -> list[TradingSignal]:
         if not self.path.exists():
@@ -49,6 +50,17 @@ class SignalReader:
         with self.path.open("r", encoding="utf-8") as handle:
             payload = json.load(handle)
         return parse_signal_payload(payload, source=str(self.path))
+
+    def read_if_changed(self) -> list[TradingSignal]:
+        if not self.path.exists():
+            self._last_signature = None
+            return []
+        stat = self.path.stat()
+        signature = (stat.st_mtime_ns, stat.st_size)
+        if signature == self._last_signature:
+            return []
+        self._last_signature = signature
+        return self.read()
 
 
 def parse_signal_payload(payload: Any, source: str = "payload") -> list[TradingSignal]:
@@ -130,6 +142,20 @@ def normalize_timeframe(value: Any) -> str | None:
         "5minute": "5m",
         "5minutes": "5m",
         "5分钟": "5m",
+        "10": "10m",
+        "10m": "10m",
+        "10min": "10m",
+        "10mins": "10m",
+        "10minute": "10m",
+        "10minutes": "10m",
+        "10分钟": "10m",
+        "15": "15m",
+        "15m": "15m",
+        "15min": "15m",
+        "15mins": "15m",
+        "15minute": "15m",
+        "15minutes": "15m",
+        "15分钟": "15m",
     }
     return aliases.get(text, text)
 

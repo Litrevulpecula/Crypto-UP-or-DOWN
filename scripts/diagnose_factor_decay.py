@@ -35,8 +35,6 @@ def feature_group(feature: str, prefix: str) -> str:
     name = feature
     if name in base.TIME_FEATURES:
         return "time"
-    if name.startswith("cross_"):
-        return "relative_strength"
     if name.startswith(f"{prefix}_"):
         name = name[len(prefix) + 1 :]
     if "basis" in name or "futures_spot" in name:
