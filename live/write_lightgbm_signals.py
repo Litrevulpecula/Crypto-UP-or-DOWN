@@ -19,20 +19,27 @@ import pandas as pd
 
 
 LIVE_DIR = Path(__file__).resolve().parent
-HIBT_DIR = LIVE_DIR / "hibt"
 if str(LIVE_DIR) not in sys.path:
     sys.path.insert(0, str(LIVE_DIR))
-if str(HIBT_DIR) not in sys.path:
-    sys.path.insert(0, str(HIBT_DIR))
 
 import lightgbm_5m_direction_btc_eth as base  # noqa: E402
-from hibt_config import normalize_symbol  # noqa: E402
 from log_colors import colorize_line  # noqa: E402
 
 
 DEFAULT_MODEL_DIRS = {"15m": LIVE_DIR / "models_15m"}
 MODEL_BUNDLE_CACHE: dict[tuple[Path, tuple[str, ...]], dict[str, Any]] = {}
 BASE_OPEN_TIME_CACHE: dict[Path, pd.Timestamp | None] = {}
+
+
+def normalize_symbol(value: str) -> str:
+    compact = value.strip().upper().replace("_", "").replace("-", "").replace("/", "")
+    if compact in {"BTCUSDT", "BTC"}:
+        return "BTC-USDT"
+    if compact in {"ETHUSDT", "ETH"}:
+        return "ETH-USDT"
+    if compact.endswith("USDT") and len(compact) > 4:
+        return f"{compact[:-4]}-USDT"
+    return value.strip().upper()
 
 
 def parse_model_dirs(values: list[str]) -> dict[str, Path]:
@@ -220,7 +227,7 @@ def signal_for_prediction(
 ) -> dict[str, Any] | None:
     minutes = timeframe_minutes(timeframe)
     if not base.aligned_decision_time_mask(pd.DatetimeIndex([decision_time]), minutes)[0]:
-        raise RuntimeError(f"{timeframe} decision_time is not aligned to a Polymarket event start: {decision_time}")
+        raise RuntimeError(f"{timeframe} decision_time is not aligned to the event start: {decision_time}")
     short_threshold = float(thresholds["short_threshold"])
     long_threshold = float(thresholds["long_threshold"])
     if probability_up >= long_threshold:
@@ -334,15 +341,6 @@ def write_payload(path: Path, payload: dict[str, Any]) -> None:
     temp_path.replace(path)
 
 
-def parse_utc_timestamp(value: str | None) -> pd.Timestamp | None:
-    if value is None:
-        return None
-    timestamp = pd.Timestamp(value)
-    if timestamp.tzinfo is None:
-        return timestamp.tz_localize("UTC")
-    return timestamp.tz_convert("UTC")
-
-
 def due_decision_times(timeframes: list[str], decision_time: pd.Timestamp) -> dict[str, pd.Timestamp]:
     due = {}
     index = pd.DatetimeIndex([decision_time])
@@ -350,19 +348,6 @@ def due_decision_times(timeframes: list[str], decision_time: pd.Timestamp) -> di
         if base.aligned_decision_time_mask(index, timeframe_minutes(timeframe))[0]:
             due[timeframe] = decision_time
     return due
-
-
-def targets_are_ready(payload: dict[str, Any], target_decision_times: dict[str, pd.Timestamp]) -> bool:
-    expected = {
-        timeframe: decision_time.tz_convert("UTC").isoformat()
-        for timeframe, decision_time in target_decision_times.items()
-    }
-    ready = set()
-    for diagnostic in payload.get("diagnostics", []):
-        timeframe = normalize_timeframe(diagnostic.get("timeframe"))
-        if timeframe in expected and diagnostic.get("decision_time") == expected[timeframe]:
-            ready.add(timeframe)
-    return set(expected) == ready
 
 
 def live_overlay_covers_decision(
@@ -414,7 +399,7 @@ def write_and_log_payload(path: Path, payload: dict[str, Any], extra: str = "") 
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate Polymarket/HiBT signals from latest LightGBM live models.")
+    parser = argparse.ArgumentParser(description="Generate event signals from latest LightGBM live models.")
     parser.add_argument("--data-root", type=Path, default=Path("aligned_data_oos"))
     parser.add_argument("--signal-file", type=Path, default=LIVE_DIR / "signals.json")
     parser.add_argument("--model-dir", action="append", default=[])

@@ -25,6 +25,7 @@ live/polymarket/runtime/
 
 # --- Live signal feed (ephemeral) ---
 live/signals.json
+live/hibt/signals.json
 
 # --- Secrets / local configs (keep *.example.json only) ---
 live/polymarket/poly_config.json
