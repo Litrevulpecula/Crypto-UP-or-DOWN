@@ -78,8 +78,8 @@ export HIBT_X_AUTH_TOKEN='...'
   --amount 15m=3
 ```
 
-`direction` 默认使用 `up=1`、`down=2`。如果实测 HiBT 映射不同，用：
+`direction` 默认使用 `up=1`、`down=-1`，对应当前 HiBT 事件合约页面的请求参数。如果实测 HiBT 映射不同，用：
 
 ```bash
---direction-up 2 --direction-down 1
+--direction-up 1 --direction-down -1
 ```

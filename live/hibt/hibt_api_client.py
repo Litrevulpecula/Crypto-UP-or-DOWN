@@ -65,6 +65,16 @@ def symbol_to_api(value: str) -> str:
     return SYMBOLS[symbol]
 
 
+def build_order_fields(*, amount: str, direction: int, symbol: str, timeframe: str) -> dict[str, str]:
+    return {
+        "amount": str(amount),
+        "direction": str(direction),
+        "symbol": symbol_to_api(symbol),
+        "timeUnit": str(timeframe_to_time_unit(timeframe)),
+        "langCode": "zh_CN",
+    }
+
+
 def place_order(
     *,
     credentials: HibtApiCredentials,
@@ -77,13 +87,7 @@ def place_order(
     query = urllib.parse.urlencode({"v": credentials.v})
     url = f"{API_URL}?{query}"
     payload = urllib.parse.urlencode(
-        {
-            "amount": str(amount),
-            "direction": str(direction),
-            "symbol": symbol_to_api(symbol),
-            "timeUnit": str(timeframe_to_time_unit(timeframe)),
-            "langCode": "zh_CN",
-        }
+        build_order_fields(amount=amount, direction=direction, symbol=symbol, timeframe=timeframe)
     ).encode("utf-8")
     request = urllib.request.Request(
         url,

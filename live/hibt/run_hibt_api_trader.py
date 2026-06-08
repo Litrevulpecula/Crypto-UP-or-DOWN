@@ -16,7 +16,7 @@ from typing import Any
 import urllib.error
 import urllib.request
 
-from hibt_api_client import HibtApiCredentials, check_auth, normalize_timeframe, place_order
+from hibt_api_client import HibtApiCredentials, build_order_fields, check_auth, normalize_timeframe, place_order
 
 
 HIBT_DIR = Path(__file__).resolve().parent
@@ -71,7 +71,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--default-amount", default="3")
     parser.add_argument("--timeframes", default="15m", help="Comma-separated allowed timeframes.")
     parser.add_argument("--direction-up", type=int, default=1)
-    parser.add_argument("--direction-down", type=int, default=2)
+    parser.add_argument("--direction-down", type=int, default=-1)
     parser.add_argument("--auth-check-seconds", type=float, default=300.0)
     parser.add_argument("--alert-min-seconds", type=float, default=3600.0)
     parser.add_argument("--live", action="store_true", help="Actually send API orders. Default is dry-run.")
@@ -121,6 +121,12 @@ def main() -> int:
                     "signal_id": signal.signal_id,
                     "signal": signal.side,
                 }
+                api_order = build_order_fields(
+                    amount=amount,
+                    direction=direction,
+                    symbol=signal.symbol,
+                    timeframe=signal.timeframe,
+                )
                 if args.live:
                     response = place_order(
                         credentials=credentials,
@@ -130,7 +136,7 @@ def main() -> int:
                         timeframe=signal.timeframe,
                     )
                     success = order_succeeded(response)
-                    record_order(args.log_file, signal, order, response, dry_run=False)
+                    record_order(args.log_file, signal, order, response, dry_run=False, api_order=api_order)
                     state.mark(signal.signal_id)
                     if success:
                         print(f"submitted {signal.signal_id} {signal.symbol} {signal.timeframe} {signal.side}", flush=True)
@@ -138,7 +144,7 @@ def main() -> int:
                         alerts.send(
                             f"hibt-order-failed-{signal.signal_id}",
                             "HiBT order failed",
-                            order_alert_body(signal, order, response),
+                            order_alert_body(signal, order, api_order, response),
                         )
                         if response_auth_failed(response):
                             alerts.send(
@@ -153,7 +159,7 @@ def main() -> int:
                         )
                 else:
                     dry_run_seen.add(signal.signal_id)
-                    record_order(args.log_file, signal, order, {"dry_run": True}, dry_run=True)
+                    record_order(args.log_file, signal, order, {"dry_run": True}, dry_run=True, api_order=api_order)
                     print(f"dry_run {signal.signal_id} {signal.symbol} {signal.timeframe} {signal.side}", flush=True)
             if args.once:
                 return 0
@@ -265,7 +271,7 @@ def alert_body(reason: str, response: dict[str, Any]) -> str:
     )
 
 
-def order_alert_body(signal: Signal, order: dict[str, Any], response: dict[str, Any]) -> str:
+def order_alert_body(signal: Signal, order: dict[str, Any], api_order: dict[str, str], response: dict[str, Any]) -> str:
     body = response.get("body")
     if isinstance(body, (dict, list)):
         body_text = json.dumps(body, ensure_ascii=False)
@@ -279,19 +285,29 @@ def order_alert_body(signal: Signal, order: dict[str, Any], response: dict[str, 
         f"timeframe: {signal.timeframe}\n"
         f"side: {signal.side}\n"
         f"order: {json.dumps(order, ensure_ascii=False)}\n"
+        f"api_order: {json.dumps(api_order, ensure_ascii=False)}\n"
         f"http_status: {response.get('http_status')}\n"
         f"body: {body_text[:1200]}\n"
         f"logged_at: {datetime.now(timezone.utc).isoformat()}\n"
     )
 
 
-def record_order(path: Path, signal: Signal, order: dict[str, Any], response: Any, *, dry_run: bool) -> None:
+def record_order(
+    path: Path,
+    signal: Signal,
+    order: dict[str, Any],
+    response: Any,
+    *,
+    dry_run: bool,
+    api_order: dict[str, str],
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     record = {
         "logged_at": datetime.now(timezone.utc).isoformat(),
         "dry_run": dry_run,
         "signal": asdict(signal),
         "order": order,
+        "api_order": api_order,
         "response": response,
     }
     with path.open("a", encoding="utf-8") as handle:
