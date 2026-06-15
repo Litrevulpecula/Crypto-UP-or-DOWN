@@ -1,0 +1,44 @@
+{
+  "baseline_alias": "results/baseline_15m",
+  "combo": {
+    "annualized_sharpe": 5.967950689709,
+    "baseline_v1_full_sharpe": 5.928,
+    "beats_baseline_full_sharpe": true,
+    "beats_previous_v1_full_sharpe": true,
+    "losses": 14064,
+    "max_drawdown": -62.3,
+    "pnl": 1989.2999999996,
+    "previous_v1_full_sharpe": 5.928,
+    "samples": 115567,
+    "tie_trades": 27,
+    "trades": 34161,
+    "win_rate_ex_ties": 0.5879767973281772,
+    "wins": 20070
+  },
+  "current_baseline": true,
+  "device_type": "gpu",
+  "download_note": "Full Kaggle output download completed successfully after retry: summary.json, predictions.csv, equity_curve.csv, feature_columns.json, folds.csv, optuna params, and 82 model files are present for this period.",
+  "gpu_probe": "supported",
+  "period": "15m",
+  "source": "kaggle kernel v13 full output archived locally",
+  "symbols": {
+    "BTC": {
+      "annualized_sharpe": 5.080824914861727,
+      "losses": 6244,
+      "pnl": 1012.5000000000002,
+      "tie_trades": 3,
+      "trades": 15318,
+      "win_rate": 0.5922951354880835,
+      "wins": 9071
+    },
+    "ETH": {
+      "annualized_sharpe": 4.4135294030372005,
+      "losses": 7820,
+      "pnl": 976.8000000000004,
+      "tie_trades": 24,
+      "trades": 18843,
+      "win_rate": 0.5844625112917796,
+      "wins": 10999
+    }
+  }
+}

@@ -10,7 +10,12 @@ __pycache__/
 live/.venv_hibt/
 
 # --- Large data / artifacts (not source) ---
+# results/ is ignored except small display files (summary/folds/png) added with -f.
+# Large outputs stay ignored even inside tracked baseline dirs:
 results/
+results/baseline_*/predictions.csv
+results/baseline_*/equity_curve.csv
+results/baseline_*/models/
 raw_data/
 aligned_data/
 aligned_data_oos/

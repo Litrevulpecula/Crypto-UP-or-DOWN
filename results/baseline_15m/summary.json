@@ -1,0 +1,52 @@
+{
+  "samples": 115567,
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT"
+  ],
+  "target": "strict spot close direction 15 minutes after last available 1m spot close; ties policy=expected",
+  "payoff": "win +0.8, loss -1.0",
+  "win_payoff": 0.8,
+  "loss_payoff": -1.0,
+  "target_tie_payoff": -0.09999999999999998,
+  "feature_set": "v1",
+  "threshold_mode": "double",
+  "threshold_objective": "walk-forward validation annualized Sharpe",
+  "min_trade_fraction": 0.05,
+  "train_window_days": null,
+  "train_time_decay_half_life_days": 365.0,
+  "train_sample_minutes": 15,
+  "validation_sample_minutes": 15,
+  "test_sample_minutes": 15,
+  "threshold_smoothing": "ema old_weight=0.3, new_weight=0.7",
+  "threshold_ema_alpha": 0.7,
+  "threshold_extreme_adjustment": "short raw 0 uses validation probability min; long raw 1 uses validation probability max before EMA smoothing",
+  "BTC": {
+    "samples": 115567,
+    "trades": 15318,
+    "trade_fraction": 0.13254648818434328,
+    "tie_trades": 3,
+    "tie_trade_fraction": 2.5958967525331626e-05,
+    "wins": 9071,
+    "losses": 6244,
+    "win_rate": 0.5922951354880835,
+    "auc": 0.5518054714411349,
+    "pnl": 1012.5000000000002,
+    "annualized_sharpe": 5.080824914861727,
+    "final_equity": 1012.499999999822
+  },
+  "ETH": {
+    "samples": 115567,
+    "trades": 18843,
+    "trade_fraction": 0.16304827502660793,
+    "tie_trades": 24,
+    "tie_trade_fraction": 0.000207671740202653,
+    "wins": 10999,
+    "losses": 7820,
+    "win_rate": 0.5844625112917796,
+    "auc": 0.553577862709081,
+    "pnl": 976.8000000000004,
+    "annualized_sharpe": 4.4135294030372005,
+    "final_equity": 976.7999999998242
+  }
+}

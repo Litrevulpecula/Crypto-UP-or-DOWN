@@ -1,0 +1,102 @@
+{
+  "BTCUSDT": {
+    "best_value": 14.22673266506782,
+    "best_params": {
+      "n_estimators": 2000,
+      "learning_rate": 0.012805408945673148,
+      "num_leaves": 24,
+      "min_child_samples": 160,
+      "subsample": 0.6063696899899051,
+      "subsample_freq": 1,
+      "colsample_bytree": 0.8708787923016159,
+      "reg_alpha": 3.325481267274215e-06,
+      "reg_lambda": 8.094845352286146,
+      "objective": "binary",
+      "random_state": 42,
+      "verbosity": -1,
+      "device_type": "gpu"
+    },
+    "best_user_attrs": {
+      "best_iteration": 227,
+      "validation_auc": 0.5791755354561823,
+      "validation_thresholds": {
+        "mode": "double",
+        "threshold": 0.5,
+        "short_threshold": 0.42,
+        "long_threshold": 0.58,
+        "sharpe": 14.22673266506782,
+        "pnl": 176.20000000000005,
+        "trades": 1217,
+        "trade_fraction": 0.21128472222222222,
+        "win_rate": 0.6359901396877568,
+        "tie_trades": 0,
+        "tie_trade_fraction": 0.0,
+        "min_trades": 288
+      },
+      "validation_sharpe": 14.22673266506782,
+      "validation_pnl": 176.20000000000005
+    },
+    "metric": "sharpe",
+    "trials": 40,
+    "fit_train_start": "2022-01-01T04:15:00+00:00",
+    "fit_train_end": "2022-11-02T04:00:00+00:00",
+    "validation_start": "2022-11-02T04:15:00+00:00",
+    "validation_end": "2023-01-01T04:00:00+00:00",
+    "fit_weight_stats": {
+      "weight_min": 0.738208501647012,
+      "weight_mean": 1.0,
+      "weight_max": 1.3173951621568603,
+      "weight_effective_rows": 28477.185289464614
+    }
+  },
+  "ETHUSDT": {
+    "best_value": 12.433652638864103,
+    "best_params": {
+      "n_estimators": 2000,
+      "learning_rate": 0.012805408945673148,
+      "num_leaves": 24,
+      "min_child_samples": 160,
+      "subsample": 0.6063696899899051,
+      "subsample_freq": 1,
+      "colsample_bytree": 0.8708787923016159,
+      "reg_alpha": 3.325481267274215e-06,
+      "reg_lambda": 8.094845352286146,
+      "objective": "binary",
+      "random_state": 42,
+      "verbosity": -1,
+      "device_type": "gpu"
+    },
+    "best_user_attrs": {
+      "best_iteration": 249,
+      "validation_auc": 0.5828992984143914,
+      "validation_thresholds": {
+        "mode": "double",
+        "threshold": 0.52,
+        "short_threshold": 0.48,
+        "long_threshold": 0.56,
+        "sharpe": 12.433652638864103,
+        "pnl": 258.6,
+        "trades": 3372,
+        "trade_fraction": 0.5854166666666667,
+        "win_rate": 0.5982779097387173,
+        "tie_trades": 4,
+        "tie_trade_fraction": 0.0006944444444444445,
+        "min_trades": 288
+      },
+      "validation_sharpe": 12.433652638864103,
+      "validation_pnl": 258.6
+    },
+    "metric": "sharpe",
+    "trials": 40,
+    "fit_train_start": "2022-01-01T04:15:00+00:00",
+    "fit_train_end": "2022-11-02T04:00:00+00:00",
+    "validation_start": "2022-11-02T04:15:00+00:00",
+    "validation_end": "2023-01-01T04:00:00+00:00",
+    "fit_weight_stats": {
+      "weight_min": 0.7382304970644885,
+      "weight_mean": 0.9999999999999998,
+      "weight_max": 1.317434414829389,
+      "weight_effective_rows": 28461.493148426103
+    }
+  }
+}
