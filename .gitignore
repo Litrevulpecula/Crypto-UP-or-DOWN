@@ -31,6 +31,10 @@ live/hibt/runtime/
 live/signals.json
 live/hibt/signals.json
 
+# --- Trained live models (proprietary, do not publish) ---
+live/models/
+live/models_*/
+
 # --- Secrets / local configs (keep *.example.json only) ---
 live/hibt/hibt_config.vps.json
 *.local.json
