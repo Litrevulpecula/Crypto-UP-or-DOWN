@@ -120,7 +120,7 @@ def fetch(base: str, symbol: str, start_ms: int, end_ms: int) -> list[list]:
                 if attempt == 4:
                     raise
                 time.sleep(1.5 * (attempt + 1))
-            except Exception as exc:
+            except Exception:
                 if attempt == 4:
                     raise
                 time.sleep(1.5 * (attempt + 1))

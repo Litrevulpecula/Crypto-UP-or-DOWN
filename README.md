@@ -1,35 +1,47 @@
 # Crypto UP or DOWN
 
-Python workflows for Binance kline alignment, LightGBM walk-forward research, and live Polymarket/HiBT signal execution.
+用于 Binance K 线对齐、LightGBM 步进式（walk-forward）研究，以及 HiBT 实盘信号执行的 Python 工作流。
 
-## Live Polymarket Model Refresh
+## 当前研究基线
 
-Live model refresh is monthly, not minute-by-minute or daily. The training cutoff must be the latest completed month with a full target label:
+当前的基线结果目录为：
 
-- 5m cutoff: current UTC month start minus 5 minutes, e.g. `2026-05-31T23:55:00Z` when running in June 2026.
-- 15m cutoff: current UTC month start minus 15 minutes, e.g. `2026-05-31T23:45:00Z` when running in June 2026.
-- Do not fetch current-minute data for training refresh.
-- Do not include `1m_live.csv` overlays in training.
-- Do not fit the deployed model on validation rows. Validation is only for early stopping and threshold selection.
-- Do not run a new live Optuna search unless a separate walk-forward backtest validates it.
+- `results/baseline_3m`
+- `results/baseline_5m`
+- `results/baseline_10m`
+- `results/baseline_15m`
+- `results/baseline_30m`
 
-Production 15m live models use the walk-forward-proven Optuna parameters stored in:
+汇总基线指标位于 `results/baseline_summary.json`。这些基线使用 v1 LightGBM 步进式流程，包含 UTC 交易时段指标和现货收盘位置特征。
+
+## 实盘模型刷新
+
+实盘模型按月重训。训练截止点必须是带有完整目标标签的最近一个完整月份：
+
+- 5m 截止点：当前 UTC 月初减 5 分钟，例如在 2026 年 6 月运行时为 `2026-05-31T23:55:00Z`。
+- 15m 截止点：当前 UTC 月初减 15 分钟，例如在 2026 年 6 月运行时为 `2026-05-31T23:45:00Z`。
+- 不要为训练刷新拉取当前分钟的数据。
+- 不要在训练中包含 `1m_live.csv` 叠加数据。
+- 不要在验证集行上拟合部署模型。验证集仅用于早停和阈值选择。
+- 除非有独立的步进式回测予以验证，否则不要运行新的实盘 Optuna 搜索。
+
+生产环境的 15m 实盘模型使用经步进式验证的 Optuna 参数，存放于：
 
 ```bash
 config/lgbm_15m_walk_forward_optuna_params.json
 ```
 
-That file is copied from `results/v1_15m_full_decay/optuna_best_params.json` and matches the 15m v1 walk-forward run:
+该文件从 `results/baseline_15m/optuna_best_params.json` 复制而来，与当前 15m 基线步进式运行一致：
 
-- target horizon: 15 minutes
-- train/validation/test sample: 15 minutes
-- feature set: `v1`
-- tie policy: `expected`
-- threshold EMA alpha from research: `0.7`
+- 目标周期：15 分钟
+- 训练/验证/测试采样：15 分钟
+- 特征集：`v1`，含 UTC 交易时段指标和现货收盘位置特征
+- 平局策略（tie policy）：`expected`
+- 研究得出的阈值 EMA alpha：`0.7`
 
-Live refresh may refit the latest BTC/ETH models at the monthly cutoff and reselect validation thresholds, but it must not run a fresh Optuna search. The searched hyperparameters are research artifacts that were validated by walk-forward. A new live-only search creates unbacktested parameters and should not be used for production.
+实盘刷新可以在每月截止点重新拟合最新的 BTC/ETH 模型并重新选择验证阈值，但绝不能运行全新的 Optuna 搜索。已搜索出的超参数是经步进式验证的研究产物。仅基于实盘的新搜索会产生未经回测的参数，不应用于生产环境。
 
-Refresh the latest 5m live models:
+刷新最新的 5m 实盘模型：
 
 ```bash
 .venv/bin/python live/train_live_model.py \
@@ -38,18 +50,17 @@ Refresh the latest 5m live models:
   --train-sample-minutes 5 \
   --validation-sample-minutes 5 \
   --threshold-update-weight 0.2 \
-  --fixed-params-json results/v1_5m_full_decay/optuna_best_params.json \
-  --feature-set v1 \
-  --optuna-trials 0
+  --fixed-params-json results/baseline_5m/optuna_best_params.json \
+  --feature-set v1
 ```
 
-Train or refresh the latest 15m live models:
+训练或刷新最新的 15m 实盘模型：
 
 ```bash
 .venv/bin/python live/train_live_model.py
 ```
 
-The defaults are:
+默认值为：
 
 - `--out-dir live/models_15m`
 - `--fixed-params-json config/lgbm_15m_walk_forward_optuna_params.json`
@@ -57,68 +68,13 @@ The defaults are:
 - `--train-sample-minutes 15`
 - `--validation-sample-minutes 15`
 - `--feature-set v1`
-- `--optuna-trials 0`
 
-`live/train_live_model.py` will refuse live Optuna unless `--allow-live-optuna` is explicitly passed. That flag is for research/debug only; do not use it for production refreshes without a separate walk-forward backtest.
+`live/train_live_model.py` 始终从 `--fixed-params-json` 读取经步进式验证的固定 Optuna 参数，仅在最新月度截止点重新拟合模型并重选验证阈值。它不会运行实盘 Optuna 搜索；如需重新搜索超参数，请回到独立的步进式研究流程。
 
-Current production Polymarket deploy is 15m only. Use the dedicated deploy script:
+## 实盘数据与信号管线
 
-```bash
-live/deploy_polymarket_15m_vps.sh --start
-```
+`live/update_live_klines.py` 是实盘 Binance 数据进程。它使用现货/期货 websocket K 线流，仅将已收盘的 1 分钟 K 线写入 `aligned_data_oos` 下按符号划分的 `1m_live.csv` 叠加文件。当传入 `--signal-file` 时，更新器会在写入新的或变更的已收盘 1 分钟行后立即运行 LightGBM 信号回调。`live/write_lightgbm_signals.py` 是单次信号工具加共享回调辅助函数；它不是实盘计时循环。不要把 `scripts/fetch_oos_klines.py` 当作实盘循环运行；它仅用于 REST 回补。
 
-See `live/README_POLYMARKET_15M.md` for the exact VPS sync exclusions and tmux commands.
+信号生成由数据回调驱动。回调将每根已收盘 1 分钟行映射到 `decision_time = open_time + 1 minute`；如果该决策时间是已配置的事件起点，且所有必需的 BTC/ETH 现货/期货叠加行都齐全，它就会将到期模型运行一次，并为该确切事件窗口写入信号。同一进程内的回调不会对同一周期/决策时间写入两次。
 
-`live/run_polymarket_stack.py` starts the Binance live kline updater with the LightGBM signal callback enabled, then starts the Polymarket trader. The stack default is `15m=live/models_15m`. Pass `--signal-model-dir` explicitly only when intentionally overriding the production model set.
-
-On startup it warms up the live overlay by fetching the latest 360 closed 1-minute Binance candles for BTC/ETH spot and futures into `1m_live.csv`. This covers the largest live feature requirement: 240 minutes of rolling features plus 15-minute horizon/safety warmup. During live operation, websocket updates are the primary path and a REST catch-up runs every 2 seconds over the latest 15 minutes so a stalled websocket stream cannot leave the event feature row incomplete. It does not retrain models and does not rewrite the large aligned gzip files.
-
-`live/update_live_klines.py` is the live Binance data process. It uses spot/futures websocket kline streams and writes only closed 1-minute candles into per-symbol `1m_live.csv` overlay files under `aligned_data_oos`. When `--signal-file` is passed, the updater runs the LightGBM signal callback immediately after a new or changed closed 1-minute row is written. `live/write_lightgbm_signals.py` is a single-shot signal utility plus shared callback helpers; it is not the live timing loop. Do not run `scripts/fetch_oos_klines.py` as a live loop; it is REST backfill only.
-
-Signal generation is data-callback driven. The callback maps each closed 1-minute row to `decision_time = open_time + 1 minute`; if that decision time is a configured Polymarket event start and all required BTC/ETH spot/futures overlay rows are present, it runs the due model(s) once and writes signals for that exact event window. The same in-process callback will not write the same timeframe/decision time twice.
-
-Current production stack loads only:
-
-- `live/models_15m`
-
-`live/write_lightgbm_signals.py` still supports multiple `--model-dir timeframe=path` entries for research/debug. Do not omit the 15m-only model selection in production deploy scripts.
-
-Run the Polymarket trader directly only for isolated debugging:
-
-```bash
-.venv/bin/python live/polymarket/run_poly_live.py --config live/polymarket/poly_config.json --dry-run
-```
-
-The trader auto-resolves BTC/ETH rolling markets from Gamma using each signal's `decision_time` / `timestamp`. The 15m production signal writer emits only 15m signals; legacy 5m token fields remain accepted as fallbacks for non-production runs.
-
-Use the finder to inspect the exact market and token IDs:
-
-```bash
-.venv/bin/python live/polymarket/poly_market_finder.py --symbol BTC --timeframe 15m
-```
-
-Manual token IDs are still accepted as fallbacks in `live/polymarket/poly_config.json`:
-
-- `token_id_btc_5m_up`, `token_id_btc_5m_down`
-- `token_id_eth_5m_up`, `token_id_eth_5m_down`
-- `token_id_btc_15m_up`, `token_id_btc_15m_down`
-- `token_id_eth_15m_up`, `token_id_eth_15m_down`
-
-`max_price` is the fixed 80% odds cap. Polymarket execution compares the all-in buy price against that cap:
-
-```text
-all_in_price = price + fee_rate * price * (1 - price)
-```
-
-The trader reads the market `fee_rate_bps` from Polymarket and only falls back to `default_taker_fee_rate_bps` if the fee lookup fails. Do not add model confidence or any other live-only variable to this price gate.
-
-Polymarket order sizing is fixed shares, not fixed USDC. Use `order_shares` in `live/polymarket/poly_config.json`; the default and minimum is `5.0` shares per signal.
-
-For funded wallet routing, `private_key` is the signing wallet private key and `funder` is the address that actually holds the funds. The trader prefers `py_clob_client_v2` when installed and supports:
-
-- `signature_type: 0` or `"eoa"` for a normal EOA wallet
-- `signature_type: 1` or `"poly_proxy"` for a Polymarket proxy wallet
-- `signature_type: 2` or `"gnosis_safe"` for a Gnosis Safe
-- `signature_type: 3` or `"poly_1271"` for the new deposit wallet / funder flow
-
-Legacy 5m fields (`token_id_btc_up`, `token_id_btc_down`, `token_id_eth_up`, `token_id_eth_down`) are still accepted as fallbacks.
+`live/write_lightgbm_signals.py` 支持多个 `--model-dir timeframe=path` 条目用于研究/调试。HiBT 实盘执行见 `live/hibt/README_HIBT.md`。

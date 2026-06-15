@@ -1,10 +1,7 @@
-catboost
 lightgbm
 matplotlib
 numpy
 optuna
 pandas
-py_clob_client
 scikit-learn
 websockets
-xgboost

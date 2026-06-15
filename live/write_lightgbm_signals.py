@@ -96,7 +96,11 @@ def build_live_feature_frame(
 ) -> pd.DataFrame:
     if feature_set not in base.FEATURE_SETS:
         raise ValueError(f"feature_set must be one of {base.FEATURE_SETS}.")
-    market_feature_set = "enhanced"
+    market_feature_set = (
+        "enhanced_price_position"
+        if feature_set in {"v1_price_position", "v1_sessions_price_position"}
+        else "enhanced"
+    )
     spot_frames = {}
     futures_frames = {}
     common_index: pd.DatetimeIndex | None = None
@@ -134,8 +138,8 @@ def build_live_feature_frame(
         parts.extend(symbol_parts)
 
     frame = pd.concat(parts, axis=1)
-    frame = pd.concat([frame, base.add_time_features(frame.index)], axis=1)
     frame, _removed = base.drop_exact_duplicate_columns(frame)
+    frame = pd.concat([frame, base.add_time_features(frame.index, feature_set)], axis=1)
     frame["last_kline_time"] = frame.index
     frame.index = frame.index + pd.Timedelta(minutes=1)
     frame.index.name = "decision_time"
@@ -406,7 +410,6 @@ def main() -> int:
     parser.add_argument("--symbols", default=",".join(base.SYMBOLS))
     parser.add_argument("--feature-set", choices=base.FEATURE_SETS, default="v1", help="Fallback when model metadata has no feature_set.")
     parser.add_argument("--lookback-days", type=float, default=1.0)
-    parser.add_argument("--once", action="store_true")
     args = parser.parse_args()
 
     payload = generate_signals(args)

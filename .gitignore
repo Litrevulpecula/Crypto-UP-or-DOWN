@@ -20,7 +20,6 @@ catboost_info/
 # --- Runtime state & browser profiles (sensitive: sessions/cookies) ---
 live/runtime/
 live/hibt/runtime/
-live/polymarket/runtime/
 **/runtime/
 
 # --- Live signal feed (ephemeral) ---
@@ -28,7 +27,6 @@ live/signals.json
 live/hibt/signals.json
 
 # --- Secrets / local configs (keep *.example.json only) ---
-live/polymarket/poly_config.json
 live/hibt/hibt_config.vps.json
 *.local.json
 .env

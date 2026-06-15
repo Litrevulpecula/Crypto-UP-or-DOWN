@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VPS="${HIBT_VPS:-root@47.79.32.65}"
+VPS="${HIBT_VPS:-poly-vps}"
 REMOTE_DIR="${HIBT_REMOTE_DIR:-/opt/hibt}"
 ALERT_TO="${HIBT_ALERT_EMAIL_TO:-}"
 ALERT_FROM="${HIBT_ALERT_EMAIL_FROM:-}"
@@ -71,6 +71,6 @@ if [ "$SKIP_TEST" -eq 0 ]; then
   "${SSH[@]}" "$VPS" "cd '$REMOTE_DIR' && . live/hibt/runtime/hibt_env.sh && PYTHONPATH=live/hibt .venv/bin/python -c 'from run_hibt_api_trader import AlertManager; AlertManager.from_env(0).send(\"hibt-alert-test\", \"HiBT alert test\", \"HiBT token-expiry email alert is configured.\")'"
 fi
 
-"${SSH[@]}" "$VPS" "cd '$REMOTE_DIR' && tmux kill-session -t hibt15_trader 2>/dev/null || true"
+"${SSH[@]}" "$VPS" "cd '$REMOTE_DIR' && tmux kill-session -t hibt3_trader 2>/dev/null || true"
 "${SSH[@]}" "$VPS" "cd '$REMOTE_DIR' && tmux new -ds hibt15_trader \". live/hibt/runtime/hibt_env.sh && .venv/bin/python live/hibt/run_hibt_api_trader.py --live --timeframes 15m --amount 15m=3\""
 "${SSH[@]}" "$VPS" "cd '$REMOTE_DIR' && sleep 2 && tmux capture-pane -p -t hibt15_trader -S -20"
