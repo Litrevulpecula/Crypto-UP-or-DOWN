@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import shutil
 from pathlib import Path
 from types import SimpleNamespace
@@ -30,6 +31,16 @@ def timestamp(value: object) -> pd.Timestamp:
     if item.tzinfo is None:
         return item.tz_localize("UTC")
     return item.tz_convert("UTC")
+
+
+def sample_minutes_arg(value: int | None, fallback: object) -> int:
+    if value is not None:
+        result = int(value)
+    else:
+        result = int(fallback)
+    if result <= 0:
+        raise ValueError("sample minutes must be positive.")
+    return result
 
 
 def resolve_model_path(source_dir: Path, value: object, fold_id: int, prefix: str) -> Path:
@@ -71,6 +82,19 @@ def replay(source_dir: Path, out_dir: Path, args: argparse.Namespace) -> dict:
     data_root = args.data_root or Path(source_info.get("data_root", "aligned_data"))
     market = source_info.get("market", base.SPOT_MARKET)
     futures_market = source_info.get("futures_market", base.FUTURES_MARKET)
+    target_horizon_minutes = sample_minutes_arg(
+        args.target_horizon_minutes,
+        source_info.get("target_horizon_minutes", base.DEFAULT_TARGET_HORIZON_MINUTES),
+    )
+    validation_sample_minutes = sample_minutes_arg(
+        args.validation_sample_minutes,
+        source_info.get("validation_sample_minutes", source_info.get("sample_minutes", base.SAMPLE_MINUTES)),
+    )
+    test_sample_minutes = sample_minutes_arg(
+        args.test_sample_minutes,
+        source_info.get("test_sample_minutes", source_info.get("sample_minutes", base.SAMPLE_MINUTES)),
+    )
+    dataset_sample_minutes = math.gcd(validation_sample_minutes, test_sample_minutes)
 
     dataset = base.build_dataset(
         data_root=data_root,
@@ -79,8 +103,8 @@ def replay(source_dir: Path, out_dir: Path, args: argparse.Namespace) -> dict:
         market=market,
         futures_market=futures_market,
         dataset_start=None,
-        target_horizon_minutes=base.TARGET_HORIZON_MINUTES,
-        sample_minutes=base.SAMPLE_MINUTES,
+        target_horizon_minutes=target_horizon_minutes,
+        sample_minutes=dataset_sample_minutes,
         target_tie_policy=target_tie_policy,
         feature_set=feature_set,
     )
@@ -96,8 +120,14 @@ def replay(source_dir: Path, out_dir: Path, args: argparse.Namespace) -> dict:
         min_trade_fraction=args.min_trade_fraction,
         threshold_grid_size=args.threshold_grid_size,
         threshold_ema_alpha=args.threshold_ema_alpha,
+        target_horizon_minutes=target_horizon_minutes,
         target_tie_policy=target_tie_policy,
         feature_set=feature_set,
+        train_window_days=source_info.get("train_window_days"),
+        train_time_decay_half_life_days=source_info.get("train_time_decay_half_life_days"),
+        train_sample_minutes=int(source_info.get("train_sample_minutes", source_info.get("sample_minutes", base.SAMPLE_MINUTES))),
+        validation_sample_minutes=validation_sample_minutes,
+        test_sample_minutes=test_sample_minutes,
     )
 
     predictions = []
@@ -114,6 +144,8 @@ def replay(source_dir: Path, out_dir: Path, args: argparse.Namespace) -> dict:
             (dataset.index >= timestamp(source_fold["test_start"]))
             & (dataset.index <= timestamp(source_fold["test_end"]))
         ]
+        validation = base.sample_aligned_frame(validation, validation_sample_minutes)
+        test = base.sample_aligned_frame(test, test_sample_minutes)
         if validation.empty or test.empty:
             raise RuntimeError(f"Empty validation/test split for fold {fold_id}.")
 
@@ -201,7 +233,7 @@ def replay(source_dir: Path, out_dir: Path, args: argparse.Namespace) -> dict:
             strict_active = active & ~test_tie
             fold_record[f"{prefix}_win_rate"] = float(wins[strict_active].mean()) if strict_active.any() else float("nan")
             fold_record[f"{prefix}_pnl"] = float(pnl.sum())
-            fold_record[f"{prefix}_test_sharpe"] = base.sharpe_ratio(pnl, base.SAMPLE_MINUTES)
+            fold_record[f"{prefix}_test_sharpe"] = base.sharpe_ratio(pnl, test_sample_minutes)
             fold_record[f"{prefix}_model_path"] = str(model_path)
             status_parts.append(
                 f"{prefix}_thr=({thresholds['used_short_threshold']:.2f},{thresholds['used_long_threshold']:.2f}) "
@@ -227,6 +259,10 @@ def replay(source_dir: Path, out_dir: Path, args: argparse.Namespace) -> dict:
         "target_symbols": list(target_symbols),
         "target_tie_policy": target_tie_policy,
         "feature_set": feature_set,
+        "target_horizon_minutes": target_horizon_minutes,
+        "dataset_sample_minutes": dataset_sample_minutes,
+        "validation_sample_minutes": validation_sample_minutes,
+        "test_sample_minutes": test_sample_minutes,
         "threshold_grid_size": args.threshold_grid_size,
         "min_trade_fraction": args.min_trade_fraction,
         "threshold_ema_alpha": args.threshold_ema_alpha,
@@ -247,6 +283,9 @@ def main() -> None:
     parser.add_argument("--threshold-grid-size", type=int, default=101)
     parser.add_argument("--min-trade-fraction", type=float, default=0.05)
     parser.add_argument("--threshold-ema-alpha", type=float, default=0.7)
+    parser.add_argument("--target-horizon-minutes", type=int, default=None)
+    parser.add_argument("--validation-sample-minutes", type=int, default=None)
+    parser.add_argument("--test-sample-minutes", type=int, default=None)
     args = parser.parse_args()
     if args.threshold_grid_size < 2:
         raise ValueError("--threshold-grid-size must be >= 2.")

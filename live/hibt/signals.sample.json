@@ -3,7 +3,7 @@
   "source": "lightgbm_live_signal_writer",
   "signals": [
     {
-      "signal_id": "lgbm-15m-BTCUSDT-20260605T123000Z",
+      "signal_id": "lgbm-3m-BTCUSDT-20260605T123000Z",
       "symbol": "BTC-USDT",
       "timeframe": "15m",
       "signal": "BUY",

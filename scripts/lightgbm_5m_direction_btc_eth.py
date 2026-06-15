@@ -27,20 +27,43 @@ SPOT_MARKET = "binance_spot_klines"
 FUTURES_MARKET = "binance_um_futures_klines"
 WINDOWS = (1, 2, 3, 5, 10, 15, 30, 60, 120, 240)
 ROLLING_WINDOWS = (5, 10, 30, 60, 120)
+PRICE_POSITION_WINDOWS = (5, 10, 15, 30, 60, 120, 240)
 PAYOFF_WIN = 0.8
 PAYOFF_LOSS = -1.0
 DEFAULT_TARGET_HORIZON_MINUTES = 5
 TARGET_HORIZON_MINUTES = DEFAULT_TARGET_HORIZON_MINUTES
 SAMPLE_MINUTES = 5
-TIME_FEATURES = ("sin_hour", "cos_hour", "sin_dayofweek", "cos_dayofweek")
+TIME_FEATURES = (
+    "sin_hour",
+    "cos_hour",
+    "sin_dayofweek",
+    "cos_dayofweek",
+    "session_asia",
+    "session_europe",
+    "session_us",
+    "session_asia_europe_overlap",
+    "session_europe_us_overlap",
+)
 SYMBOL_COLORS = {"BTC": "#F59119", "ETH": "#647DEB"}
-FEATURE_SETS = ("v1",)
+FEATURE_SETS = ("v1", "v1_sessions", "v1_price_position", "v1_sessions_price_position")
 FEATURE_SET_DESCRIPTIONS = {
     "v1": (
         "v1 current baseline with finite-difference acceleration, KAMA location/velocity/acceleration, "
         "volatility/order-flow ratios/interactions, futures-vs-spot ratios/interactions, "
         "spot multi-window returns, same-symbol futures-vs-spot basis/ratio/interaction features, "
         "and exact duplicate feature pruning with no duplicated raw futures market features"
+    ),
+    "v1_sessions": (
+        "v1 plus UTC trading-session indicators: Asia 00-08, Europe 07-16, US 13-22, "
+        "and Asia/Europe plus Europe/US overlap flags"
+    ),
+    "v1_price_position": (
+        "v1 plus spot close position within rolling high/low ranges over "
+        "5, 10, 15, 30, 60, 120, and 240 minute windows"
+    ),
+    "v1_sessions_price_position": (
+        "v1 plus UTC trading-session indicators and spot close position within rolling high/low ranges over "
+        "5, 10, 15, 30, 60, 120, and 240 minute windows"
     ),
 }
 def parse_symbols(value: str) -> tuple[str, ...]:
@@ -93,6 +116,16 @@ def read_1m(
         )
         frame = frame.loc[frame.index >= warmup_start]
     return frame.dropna()
+
+
+def resolve_1m_path(root: Path, market: str, symbol: str) -> Path:
+    gz_path = root / market / symbol / "1m.csv.gz"
+    if gz_path.exists():
+        return gz_path
+    csv_path = root / market / symbol / "1m.csv"
+    if csv_path.exists():
+        return csv_path
+    return gz_path
 
 
 def safe_div(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
@@ -173,7 +206,8 @@ def drop_exact_duplicate_columns(frame: pd.DataFrame) -> tuple[pd.DataFrame, lis
 
 def add_market_features(frame: pd.DataFrame, prefix: str, feature_set: str = "v1") -> pd.DataFrame:
     out = pd.DataFrame(index=frame.index)
-    include_enhanced = feature_set == "enhanced"
+    include_enhanced = feature_set in {"enhanced", "enhanced_price_position"}
+    include_price_position = feature_set == "enhanced_price_position"
     open_ = frame["open"]
     close = frame["close"]
     high = frame["high"]
@@ -222,6 +256,13 @@ def add_market_features(frame: pd.DataFrame, prefix: str, feature_set: str = "v1
         realized_vol_by_window = {}
         quote_volume_mean_by_window = {}
         buy_ratio_mean_by_window = {}
+
+    if include_price_position:
+        for window in PRICE_POSITION_WINDOWS:
+            rolling_high = high.rolling(window, min_periods=window).max()
+            rolling_low = low.rolling(window, min_periods=window).min()
+            position = safe_div(close - rolling_low, rolling_high - rolling_low)
+            out[f"{prefix}_close_position_{window}m"] = position.clip(0.0, 1.0)
 
     for window in ROLLING_WINDOWS:
         rolling_high = high.rolling(window, min_periods=window).max()
@@ -311,7 +352,7 @@ def add_market_features(frame: pd.DataFrame, prefix: str, feature_set: str = "v1
 
 def add_spot_futures_features(spot: pd.DataFrame, futures: pd.DataFrame, prefix: str, feature_set: str = "v1") -> pd.DataFrame:
     out = pd.DataFrame(index=spot.index)
-    include_enhanced = feature_set == "enhanced"
+    include_enhanced = feature_set in {"enhanced", "enhanced_price_position"}
     spot_close = spot["close"]
     futures_close = futures["close"]
     basis = futures_close / spot_close - 1.0
@@ -356,12 +397,19 @@ def add_spot_futures_features(spot: pd.DataFrame, futures: pd.DataFrame, prefix:
     return out
 
 
-def add_time_features(index: pd.DatetimeIndex) -> pd.DataFrame:
+def add_time_features(index: pd.DatetimeIndex, feature_set: str = "v1") -> pd.DataFrame:
     out = pd.DataFrame(index=index)
     out["sin_hour"] = np.sin(2.0 * np.pi * index.hour / 24.0)
     out["cos_hour"] = np.cos(2.0 * np.pi * index.hour / 24.0)
     out["sin_dayofweek"] = np.sin(2.0 * np.pi * index.dayofweek / 7.0)
     out["cos_dayofweek"] = np.cos(2.0 * np.pi * index.dayofweek / 7.0)
+    if feature_set in {"v1_sessions", "v1_sessions_price_position"}:
+        hour = index.hour + index.minute / 60.0
+        out["session_asia"] = ((hour >= 0.0) & (hour < 8.0)).astype(np.float32)
+        out["session_europe"] = ((hour >= 7.0) & (hour < 16.0)).astype(np.float32)
+        out["session_us"] = ((hour >= 13.0) & (hour < 22.0)).astype(np.float32)
+        out["session_asia_europe_overlap"] = ((hour >= 7.0) & (hour < 8.0)).astype(np.float32)
+        out["session_europe_us_overlap"] = ((hour >= 13.0) & (hour < 16.0)).astype(np.float32)
     return out
 
 
@@ -394,7 +442,11 @@ def build_dataset(
         raise ValueError("target_tie_policy must be 'drop', 'down', or 'expected'.")
     if feature_set not in FEATURE_SETS:
         raise ValueError(f"feature_set must be one of {FEATURE_SETS}.")
-    market_feature_set = "enhanced"
+    market_feature_set = (
+        "enhanced_price_position"
+        if feature_set in {"v1_price_position", "v1_sessions_price_position"}
+        else "enhanced"
+    )
     modeled_symbols = target_symbols or symbols
     missing_targets = sorted(set(modeled_symbols) - set(symbols))
     if missing_targets:
@@ -406,8 +458,8 @@ def build_dataset(
     common_index: pd.DatetimeIndex | None = None
 
     for symbol in symbols:
-        futures_path = data_root / futures_market / symbol / "1m.csv.gz"
-        spot_path = data_root / market / symbol / "1m.csv.gz"
+        futures_path = resolve_1m_path(data_root, futures_market, symbol)
+        spot_path = resolve_1m_path(data_root, market, symbol)
         futures = read_1m(futures_path, dataset_start, target_horizon_minutes)
         spot = read_1m(spot_path, dataset_start, target_horizon_minutes)
         price_source_by_symbol[symbol] = market
@@ -435,7 +487,7 @@ def build_dataset(
 
     parts = [part for part in parts if part is not None]
     frame = pd.concat(parts, axis=1)
-    frame = pd.concat([frame, add_time_features(frame.index)], axis=1)
+    frame = pd.concat([frame, add_time_features(frame.index, feature_set)], axis=1)
     frame, duplicate_feature_columns = drop_exact_duplicate_columns(frame)
 
     horizon_steps = target_horizon_minutes

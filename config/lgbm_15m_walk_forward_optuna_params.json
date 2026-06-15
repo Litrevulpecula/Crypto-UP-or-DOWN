@@ -1,8 +1,8 @@
 {
   "_meta": {
-    "source_result_dir": "results/v1_15m_full_decay",
-    "source_params_file": "results/v1_15m_full_decay/optuna_best_params.json",
-    "source_summary_file": "results/v1_15m_full_decay/summary.json",
+    "source_result_dir": "results/baseline_15m",
+    "source_params_file": "results/baseline_15m/optuna_best_params.json",
+    "source_summary_file": "results/baseline_15m/summary.json",
     "target_horizon_minutes": 15,
     "train_sample_minutes": 15,
     "validation_sample_minutes": 15,
@@ -11,84 +11,158 @@
     "target_tie_policy": "expected",
     "min_trade_fraction": 0.05,
     "threshold_ema_alpha": 0.7,
-    "policy": "Use these walk-forward-proven Optuna params for production live refresh. Do not rerun Optuna in live training."
+    "policy": "Use these walk-forward-proven Optuna params for production live refresh. Do not rerun Optuna in live training.",
+    "sol_source_result_dir": "results/v1_15m_full_decay_sol_20260608",
+    "sol_source_params_file": "results/v1_15m_full_decay_sol_20260608/optuna_best_params.json",
+    "sol_source_summary_file": "results/v1_15m_full_decay_sol_20260608/summary.json",
+    "source_computed_metrics_file": "results/baseline_15m/computed_metrics.json",
+    "feature_note": "Current baseline includes UTC session indicators and spot close position within rolling high/low ranges."
   },
   "BTCUSDT": {
-    "best_value": 14.857813466247752,
+    "best_value": 14.22673266506782,
     "best_params": {
       "n_estimators": 2000,
-      "learning_rate": 0.015077681153939766,
-      "num_leaves": 16,
+      "learning_rate": 0.012805408945673148,
+      "num_leaves": 24,
       "min_child_samples": 160,
-      "subsample": 0.6182096494749166,
+      "subsample": 0.6063696899899051,
       "subsample_freq": 1,
-      "colsample_bytree": 0.5760206371941119,
-      "reg_alpha": 4.387314432435407,
-      "reg_lambda": 5.746775499181867,
+      "colsample_bytree": 0.8708787923016159,
+      "reg_alpha": 3.325481267274215e-06,
+      "reg_lambda": 8.094845352286146,
       "objective": "binary",
       "random_state": 42,
       "verbosity": -1
     },
     "best_user_attrs": {
-      "best_iteration": 243,
-      "validation_auc": 0.5821151411705452,
+      "best_iteration": 227,
+      "validation_auc": 0.5791755354561823,
       "validation_thresholds": {
         "mode": "double",
-        "threshold": 0.495,
+        "threshold": 0.5,
         "short_threshold": 0.42,
-        "long_threshold": 0.5700000000000001,
-        "sharpe": 14.857813466247752,
-        "pnl": 198.20000000000005,
-        "trades": 1411,
-        "trade_fraction": 0.24496527777777777,
-        "win_rate": 0.6335931963146705,
+        "long_threshold": 0.58,
+        "sharpe": 14.22673266506782,
+        "pnl": 176.20000000000005,
+        "trades": 1217,
+        "trade_fraction": 0.21128472222222222,
+        "win_rate": 0.6359901396877568,
         "tie_trades": 0,
         "tie_trade_fraction": 0.0,
         "min_trades": 288
       },
-      "validation_sharpe": 14.857813466247752,
-      "validation_pnl": 198.20000000000005
+      "validation_sharpe": 14.22673266506782,
+      "validation_pnl": 176.20000000000005
     },
     "metric": "sharpe",
-    "trials": 40
+    "trials": 40,
+    "fit_train_start": "2022-01-01T04:15:00+00:00",
+    "fit_train_end": "2022-11-02T04:00:00+00:00",
+    "validation_start": "2022-11-02T04:15:00+00:00",
+    "validation_end": "2023-01-01T04:00:00+00:00",
+    "fit_weight_stats": {
+      "weight_min": 0.738208501647012,
+      "weight_mean": 1.0,
+      "weight_max": 1.3173951621568603,
+      "weight_effective_rows": 28477.185289464614
+    }
   },
   "ETHUSDT": {
-    "best_value": 12.286056514112243,
+    "best_value": 12.433652638864103,
     "best_params": {
       "n_estimators": 2000,
-      "learning_rate": 0.01573678081395535,
-      "num_leaves": 40,
-      "min_child_samples": 240,
-      "subsample": 0.6706283318462443,
+      "learning_rate": 0.012805408945673148,
+      "num_leaves": 24,
+      "min_child_samples": 160,
+      "subsample": 0.6063696899899051,
       "subsample_freq": 1,
-      "colsample_bytree": 0.7830043528976134,
-      "reg_alpha": 0.026429976023795574,
-      "reg_lambda": 0.0006016093127947849,
+      "colsample_bytree": 0.8708787923016159,
+      "reg_alpha": 3.325481267274215e-06,
+      "reg_lambda": 8.094845352286146,
       "objective": "binary",
       "random_state": 42,
       "verbosity": -1
     },
     "best_user_attrs": {
-      "best_iteration": 168,
-      "validation_auc": 0.5793582219271393,
+      "best_iteration": 249,
+      "validation_auc": 0.5828992984143914,
       "validation_thresholds": {
         "mode": "double",
         "threshold": 0.52,
-        "short_threshold": 0.46,
-        "long_threshold": 0.58,
-        "sharpe": 12.286056514112243,
-        "pnl": 211.10000000000002,
-        "trades": 2308,
-        "trade_fraction": 0.40069444444444446,
-        "win_rate": 0.6064152579107065,
-        "tie_trades": 1,
-        "tie_trade_fraction": 0.00017361111111111112,
+        "short_threshold": 0.48,
+        "long_threshold": 0.56,
+        "sharpe": 12.433652638864103,
+        "pnl": 258.6,
+        "trades": 3372,
+        "trade_fraction": 0.5854166666666667,
+        "win_rate": 0.5982779097387173,
+        "tie_trades": 4,
+        "tie_trade_fraction": 0.0006944444444444445,
         "min_trades": 288
       },
-      "validation_sharpe": 12.286056514112243,
-      "validation_pnl": 211.10000000000002
+      "validation_sharpe": 12.433652638864103,
+      "validation_pnl": 258.6
     },
     "metric": "sharpe",
-    "trials": 40
+    "trials": 40,
+    "fit_train_start": "2022-01-01T04:15:00+00:00",
+    "fit_train_end": "2022-11-02T04:00:00+00:00",
+    "validation_start": "2022-11-02T04:15:00+00:00",
+    "validation_end": "2023-01-01T04:00:00+00:00",
+    "fit_weight_stats": {
+      "weight_min": 0.7382304970644885,
+      "weight_mean": 0.9999999999999998,
+      "weight_max": 1.317434414829389,
+      "weight_effective_rows": 28461.493148426103
+    }
+  },
+  "SOLUSDT": {
+    "best_value": 7.897198585132305,
+    "best_params": {
+      "n_estimators": 2000,
+      "learning_rate": 0.010632585838075357,
+      "num_leaves": 24,
+      "min_child_samples": 20,
+      "subsample": 0.6801321323053058,
+      "subsample_freq": 1,
+      "colsample_bytree": 0.7054709158757928,
+      "reg_alpha": 7.933105363733024e-05,
+      "reg_lambda": 0.6326486185661588,
+      "objective": "binary",
+      "random_state": 42,
+      "verbosity": -1
+    },
+    "best_user_attrs": {
+      "best_iteration": 173,
+      "validation_auc": 0.5434926193193271,
+      "validation_thresholds": {
+        "mode": "double",
+        "threshold": 0.515,
+        "short_threshold": 0.45,
+        "long_threshold": 0.58,
+        "sharpe": 7.897198585132305,
+        "pnl": 50.30000000000001,
+        "trades": 370,
+        "trade_fraction": 0.06820276497695853,
+        "win_rate": 0.6422287390029325,
+        "tie_trades": 29,
+        "tie_trade_fraction": 0.005345622119815668,
+        "min_trades": 272
+      },
+      "validation_sharpe": 7.897198585132305,
+      "validation_pnl": 50.30000000000001
+    },
+    "metric": "sharpe",
+    "trials": 40,
+    "fit_train_start": "2022-01-01T04:15:00+00:00",
+    "fit_train_end": "2022-11-02T04:00:00+00:00",
+    "validation_start": "2022-11-02T04:15:00+00:00",
+    "validation_end": "2023-01-01T02:15:00+00:00",
+    "fit_weight_stats": {
+      "weight_min": 0.7379811718964621,
+      "weight_mean": 1.0,
+      "weight_max": 1.3169894730962215,
+      "weight_effective_rows": 27402.88343144931
+    }
   }
 }

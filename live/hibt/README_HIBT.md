@@ -30,7 +30,7 @@ live/hibt/
 .venv/bin/python live/hibt/run_hibt_signal_stack.py
 ```
 
-默认只跑 15m 模型：
+默认只跑 3m 模型：
 
 ```text
 --signal-model-dir 15m=live/models_15m
@@ -73,9 +73,9 @@ export HIBT_X_AUTH_TOKEN='...'
 ```bash
 .venv/bin/python live/hibt/run_hibt_api_trader.py \
   --live \
-  --timeframes 5m,15m \
+  --timeframes 15m,5m \
+  --amount 15m=3 \
   --amount 5m=3 \
-  --amount 15m=3
 ```
 
 `direction` 默认使用 `up=1`、`down=-1`，对应当前 HiBT 事件合约页面的请求参数。如果实测 HiBT 映射不同，用：
