@@ -1,6 +1,6 @@
 # Crypto UP or DOWN
 
-用于 Binance K 线对齐、LightGBM 步进式（walk-forward）研究，以及 HiBT 实盘信号执行的 Python 工作流。
+用于 Binance K 线对齐、LightGBM 步进式（walk-forward）研究，以及实盘信号生成的 Python 工作流。
 
 ## 当前研究基线
 
@@ -77,4 +77,10 @@ config/lgbm_15m_walk_forward_optuna_params.json
 
 信号生成由数据回调驱动。回调将每根已收盘 1 分钟行映射到 `decision_time = open_time + 1 minute`；如果该决策时间是已配置的事件起点，且所有必需的 BTC/ETH 现货/期货叠加行都齐全，它就会将到期模型运行一次，并为该确切事件窗口写入信号。同一进程内的回调不会对同一周期/决策时间写入两次。
 
-`live/write_lightgbm_signals.py` 支持多个 `--model-dir timeframe=path` 条目用于研究/调试。HiBT 实盘执行见 `live/hibt/README_HIBT.md`。
+`live/write_lightgbm_signals.py` 支持多个 `--model-dir timeframe=path` 条目用于研究/调试。事件合约执行端已经迁出到独立仓库 `event_contracts_router/`；本仓库只负责生成 `live/signals.json`。
+
+启动实盘信号生成：
+
+```bash
+.venv/bin/python live/run_signal_stack.py --signal-file live/signals.json
+```
