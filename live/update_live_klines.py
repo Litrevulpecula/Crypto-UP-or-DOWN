@@ -42,6 +42,7 @@ CSV_COLUMNS = [
     "is_missing",
     "source_file",
 ]
+FEATURE_ROW_COLUMNS = tuple(column for column in CSV_COLUMNS if column != "source_file")
 
 log = logging.getLogger("update_live_klines")
 
@@ -165,6 +166,12 @@ def write_rows(path: Path, rows: dict[int, dict[str, str]]) -> None:
     temp_path.replace(path)
 
 
+def feature_row_changed(old: dict[str, str] | None, new: dict[str, str]) -> bool:
+    if old is None:
+        return True
+    return any(old.get(column, "") != new.get(column, "") for column in FEATURE_ROW_COLUMNS)
+
+
 @dataclass
 class OverlayStore:
     data_root: Path
@@ -184,7 +191,7 @@ class OverlayStore:
         changed_rows = []
         for row in new_rows:
             open_time = int(row["open_time"])
-            if rows.get(open_time) != row:
+            if feature_row_changed(rows.get(open_time), row):
                 rows[open_time] = row
                 changed_rows.append(row)
         changed = bool(changed_rows)
@@ -210,6 +217,7 @@ class SignalWriterCallback:
         model_dir: list[str],
         feature_set: str,
         lookback_days: float,
+        store: OverlayStore,
     ) -> None:
         import write_lightgbm_signals as signal_writer
 
@@ -222,6 +230,7 @@ class SignalWriterCallback:
             feature_set=feature_set,
             lookback_days=lookback_days,
         )
+        self.store = store
         self.symbols = signal_writer.base.parse_symbols(symbols)
         self.model_dirs = signal_writer.parse_model_dirs(model_dir)
         self.timeframes = sorted(self.model_dirs, key=signal_writer.timeframe_minutes)
@@ -230,7 +239,7 @@ class SignalWriterCallback:
         warmup_start = time.perf_counter()
         for path in self.model_dirs.values():
             signal_writer.load_model_bundle(path, self.symbols)
-        signal_writer.latest_dataset_start(data_root, self.symbols, lookback_days)
+        self.args.dataset_start = signal_writer.latest_dataset_start(data_root, self.symbols, lookback_days)
         warmup_ms = (time.perf_counter() - warmup_start) * 1000.0
         log.info(
             "signal callback ready timeframes=%s warmup_ms=%.3f signal_file=%s",
@@ -257,7 +266,7 @@ class SignalWriterCallback:
             }
             if not targets:
                 continue
-            ready, missing = writer.target_data_ready(self.args, self.symbols, targets)
+            ready, missing = self.target_data_ready(targets)
             if not ready:
                 log.debug(
                     "signal callback waiting target=%s due=%s missing=%s",
@@ -274,6 +283,7 @@ class SignalWriterCallback:
                 payload,
                 extra=(
                     f"callback_market={market} callback_symbol={symbol} "
+                    f"callback_source={row.get('source_file', '')} "
                     f"target_decision_time={decision_time.tz_convert('UTC').isoformat()} "
                     f"due={','.join(targets)} generate_ms={generate_ms:.3f}"
                 ),
@@ -282,15 +292,37 @@ class SignalWriterCallback:
                 self.emitted.add((timeframe, target.isoformat()))
             end_delay_ms = (writer.pd.Timestamp.now(tz="UTC") - decision_time).total_seconds() * 1000.0
             log.info(
-                "signal callback emitted target=%s due=%s trigger=%s:%s generate_ms=%.3f write_ms=%.3f end_delay_ms=%.3f",
+                "signal callback emitted target=%s due=%s trigger=%s:%s source=%s generate_ms=%.3f write_ms=%.3f end_delay_ms=%.3f",
                 decision_time.isoformat(),
                 ",".join(targets),
                 market,
                 symbol,
+                row.get("source_file", ""),
                 generate_ms,
                 write_ms,
                 end_delay_ms,
             )
+
+    def target_data_ready(self, target_decision_times: dict[str, Any]) -> tuple[bool, list[str]]:
+        writer = self.signal_writer
+        missing = []
+        for timeframe, decision_time in target_decision_times.items():
+            warmup_minutes = max(writer.base.WINDOWS + writer.base.ROLLING_WINDOWS) + writer.timeframe_minutes(timeframe) + 5
+            target_open_ms = int((decision_time - writer.pd.Timedelta(minutes=1)).timestamp() * 1000)
+            for symbol in self.symbols:
+                for market in (writer.base.SPOT_MARKET, writer.base.FUTURES_MARKET):
+                    path = self.args.data_root / market / symbol / "1m_live.csv"
+                    rows = self.store.rows_by_path.get(path)
+                    if rows is None:
+                        missing.append(f"{timeframe}:{market}:{symbol}")
+                        continue
+                    tail = sorted(open_time for open_time in rows if open_time <= target_open_ms)[-(warmup_minutes + 1) :]
+                    if len(tail) < warmup_minutes + 1 or tail[-1] != target_open_ms:
+                        missing.append(f"{timeframe}:{market}:{symbol}")
+                        continue
+                    if any((right - left) != 60_000 for left, right in zip(tail, tail[1:])):
+                        missing.append(f"{timeframe}:{market}:{symbol}")
+        return not missing, missing
 
 
 def rest_backfill(
@@ -386,6 +418,7 @@ async def run(args: argparse.Namespace) -> None:
             args.signal_model_dir,
             args.signal_feature_set,
             args.signal_lookback_days,
+            store,
         )
     tasks = [
         consume_market(store, SPOT_MARKET, SPOT_WS, symbols),

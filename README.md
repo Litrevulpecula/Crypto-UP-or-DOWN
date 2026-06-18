@@ -77,10 +77,18 @@ config/lgbm_15m_walk_forward_optuna_params.json
 
 信号生成由数据回调驱动。回调将每根已收盘 1 分钟行映射到 `decision_time = open_time + 1 minute`；如果该决策时间是已配置的事件起点，且所有必需的 BTC/ETH 现货/期货叠加行都齐全，它就会将到期模型运行一次，并为该确切事件窗口写入信号。同一进程内的回调不会对同一周期/决策时间写入两次。
 
-`live/write_lightgbm_signals.py` 支持多个 `--model-dir timeframe=path` 条目用于研究/调试。事件合约执行端已经迁出到独立仓库 `event_contracts_router/`；本仓库只负责生成 `live/signals.json`。
+`live/write_lightgbm_signals.py` 支持多个 `--model-dir timeframe=path` 条目用于研究/调试。HiBT 执行端在 `live/hibt/`，前端控制面板只控制 HiBT 的启用开关和统一下单金额。
 
 启动实盘信号生成：
 
 ```bash
 .venv/bin/python live/run_signal_stack.py --signal-file live/signals.json
+```
+
+启动 HiBT 信号生成、执行和前端：
+
+```bash
+.venv/bin/python live/hibt/run_hibt_signal_stack.py
+.venv/bin/python live/hibt/run_hibt_api_trader.py --timeframes 3m,5m,15m
+.venv/bin/python live/hibt/control_panel.py --host 127.0.0.1 --port 8765
 ```

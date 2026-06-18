@@ -11,9 +11,9 @@ import time
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 LIVE_DIR = ROOT / "live"
-DEFAULT_SIGNAL_FILE = LIVE_DIR / "signals.json"
+HIBT_DIR = LIVE_DIR / "hibt"
 DEFAULT_SIGNAL_MODEL_DIRS = ["3m=live/models_3m", "5m=live/models_5m", "15m=live/models_15m"]
 
 
@@ -51,7 +51,7 @@ def raise_keyboard_interrupt(_signum: int, _frame: object) -> None:
 def clear_signal_file(path: Path) -> None:
     payload = {
         "generated_at": None,
-        "source": "lightgbm_signal_stack",
+        "source": "hibt_signal_stack",
         "signals": [],
         "diagnostics": [],
     }
@@ -61,16 +61,16 @@ def clear_signal_file(path: Path) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run LightGBM signal generation for event-contract routers.")
+    parser = argparse.ArgumentParser(description="Run local LightGBM signal generation for HiBT API execution.")
     parser.add_argument("--data-root", type=Path, default=Path("aligned_data_oos"))
     parser.add_argument("--symbols", default="BTCUSDT,ETHUSDT")
-    parser.add_argument("--signal-file", type=Path, default=DEFAULT_SIGNAL_FILE)
+    parser.add_argument("--signal-file", type=Path, default=HIBT_DIR / "signals.json")
     parser.add_argument("--signal-model-dir", action="append", default=None)
     parser.add_argument("--kline-log-level", default="INFO")
     parser.add_argument("--kline-keep-rows", type=int, default=3000)
     parser.add_argument("--rest-backfill-minutes", type=int, default=360)
-    parser.add_argument("--rest-catchup-minutes", type=int, default=2)
-    parser.add_argument("--rest-catchup-seconds", type=float, default=30.0)
+    parser.add_argument("--rest-catchup-minutes", type=int, default=15)
+    parser.add_argument("--rest-catchup-seconds", type=float, default=2.0)
     parser.add_argument("--keep-existing-signal-file", action="store_true")
     args = parser.parse_args()
 
@@ -112,7 +112,7 @@ def main() -> int:
                 return int(return_code)
             time.sleep(1.0)
     except KeyboardInterrupt:
-        print("stopping signal stack", flush=True)
+        print("stopping HiBT signal stack", flush=True)
         if process is not None:
             stop_process(process)
         return 130

@@ -26,7 +26,11 @@ import lightgbm_5m_direction_btc_eth as base  # noqa: E402
 from log_colors import colorize_line  # noqa: E402
 
 
-DEFAULT_MODEL_DIRS = {"15m": LIVE_DIR / "models_15m"}
+DEFAULT_MODEL_DIRS = {
+    "3m": LIVE_DIR / "models_3m",
+    "5m": LIVE_DIR / "models_5m",
+    "15m": LIVE_DIR / "models_15m",
+}
 MODEL_BUNDLE_CACHE: dict[tuple[Path, tuple[str, ...]], dict[str, Any]] = {}
 BASE_OPEN_TIME_CACHE: dict[Path, pd.Timestamp | None] = {}
 
@@ -278,7 +282,9 @@ def generate_signals(
         }
     signals = []
     diagnostics = []
-    dataset_start = latest_dataset_start(args.data_root, symbols, args.lookback_days)
+    dataset_start = getattr(args, "dataset_start", None)
+    if dataset_start is None:
+        dataset_start = latest_dataset_start(args.data_root, symbols, args.lookback_days)
 
     for timeframe, model_dir in sorted(selected_model_dirs.items(), key=lambda item: timeframe_minutes(item[0])):
         minutes = timeframe_minutes(timeframe)
