@@ -1,7 +1,7 @@
 {
-  "rows": 226024,
+  "rows": 233292,
   "start": "2022-01-01T04:10:00+00:00",
-  "end": "2026-04-23T23:50:00+00:00",
+  "end": "2026-06-15T07:30:00+00:00",
   "symbols": [
     "BTCUSDT",
     "ETHUSDT"
@@ -10,7 +10,7 @@
     "BTCUSDT",
     "ETHUSDT"
   ],
-  "data_root": "/kaggle/input/hibt-crypto-walk-forward-data",
+  "data_root": "aligned_data_oos",
   "market": "binance_spot_klines",
   "futures_market": "binance_um_futures_klines",
   "price_source_by_symbol": {
@@ -19,8 +19,8 @@
   },
   "futures_features": true,
   "sample_minutes": 10,
-  "feature_set": "v1",
-  "feature_set_description": "v1 current baseline with finite-difference acceleration, KAMA location/velocity/acceleration, volatility/order-flow ratios/interactions, futures-vs-spot ratios/interactions, spot multi-window returns, same-symbol futures-vs-spot basis/ratio/interaction features, UTC session indicators, spot close position within rolling high/low ranges, and exact duplicate feature pruning with no duplicated raw futures market features",
+  "feature_set": "v1_sessions_price_position_phase",
+  "feature_set_description": "v1_sessions_price_position plus minute-of-hour sine/cosine phase features",
   "duplicate_feature_columns_removed": [],
   "all_nan_feature_columns_removed": [],
   "train_sample_minutes": 10,
@@ -32,8 +32,8 @@
   "target_tie_policy": "expected",
   "target_tie_payoff": -0.09999999999999998,
   "target_tie_counts_before_drop": {
-    "BTCUSDT": 1972,
-    "ETHUSDT": 3787
+    "BTCUSDT": 2006,
+    "ETHUSDT": 3922
   },
   "initial_train_days": 365,
   "train_window_days": null,
@@ -50,7 +50,7 @@
   "threshold_ema_alpha": 0.7,
   "threshold_extreme_adjustment": "short raw 0 uses validation probability min; long raw 1 uses validation probability max before EMA smoothing",
   "threshold_objective": "validation annualized Sharpe on fixed payoff pnl",
-  "optuna_trials": 40,
+  "optuna_trials": 20,
   "optuna_metric": "sharpe",
   "fixed_params_json": null,
   "fold_optuna_trials": 0,

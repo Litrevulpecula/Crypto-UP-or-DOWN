@@ -1,5 +1,5 @@
 {
-  "samples": 578276,
+  "samples": 602527,
   "symbols": [
     "BTCUSDT",
     "ETHUSDT"
@@ -9,7 +9,7 @@
   "win_payoff": 0.8,
   "loss_payoff": -1.0,
   "target_tie_payoff": -0.09999999999999998,
-  "feature_set": "v1",
+  "feature_set": "v1_sessions_price_position_phase",
   "threshold_mode": "double",
   "threshold_objective": "walk-forward validation annualized Sharpe",
   "min_trade_fraction": 0.05,
@@ -22,31 +22,31 @@
   "threshold_ema_alpha": 0.7,
   "threshold_extreme_adjustment": "short raw 0 uses validation probability min; long raw 1 uses validation probability max before EMA smoothing",
   "BTC": {
-    "samples": 578276,
-    "trades": 43543,
-    "trade_fraction": 0.07529795460990946,
-    "tie_trades": 963,
-    "tie_trade_fraction": 0.0016652947727382771,
-    "wins": 24934,
-    "losses": 17646,
-    "win_rate": 0.5855800845467356,
-    "auc": 0.5423715575148627,
-    "pnl": 2204.900000000001,
-    "annualized_sharpe": 6.620429251780343,
-    "final_equity": 2204.8999999998255
+    "samples": 602527,
+    "trades": 47791,
+    "trade_fraction": 0.07931760734373729,
+    "tie_trades": 1210,
+    "tie_trade_fraction": 0.0020082087607692267,
+    "wins": 27688,
+    "losses": 18893,
+    "win_rate": 0.5944054442798566,
+    "auc": 0.544943003284097,
+    "pnl": 3136.400000000001,
+    "annualized_sharpe": 8.839249449081388,
+    "final_equity": 3136.4000000015562
   },
   "ETH": {
-    "samples": 578276,
-    "trades": 37002,
-    "trade_fraction": 0.06398674681294053,
-    "tie_trades": 260,
-    "tie_trade_fraction": 0.0004496122958587249,
-    "wins": 21246,
-    "losses": 15496,
-    "win_rate": 0.5782483261662402,
-    "auc": 0.5385962808361326,
-    "pnl": 1474.8000000000006,
-    "annualized_sharpe": 4.759302946360654,
-    "final_equity": 1474.7999999992917
+    "samples": 602527,
+    "trades": 40767,
+    "trade_fraction": 0.06766003847130501,
+    "tie_trades": 322,
+    "tie_trade_fraction": 0.0005344158850972653,
+    "wins": 23368,
+    "losses": 17077,
+    "win_rate": 0.5777722833477562,
+    "auc": 0.5417843062896787,
+    "pnl": 1585.200000000001,
+    "annualized_sharpe": 4.776099748623334,
+    "final_equity": 1585.1999999992493
   }
 }

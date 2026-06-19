@@ -43,12 +43,20 @@ TIME_FEATURES = (
     "session_us",
     "session_asia_europe_overlap",
     "session_europe_us_overlap",
+    "sin_minute",
+    "cos_minute",
 )
-SYMBOL_COLORS = {"BTC": "#F59119", "ETH": "#647DEB"}
-FEATURE_SETS = ("v1", "v1_sessions", "v1_price_position", "v1_sessions_price_position")
+SYMBOL_COLORS = {"BTC": "#F59119", "ETH": "#647DEB", "SOL": "#14F195"}
+FEATURE_SETS = (
+    "v1",
+    "v1_sessions",
+    "v1_price_position",
+    "v1_sessions_price_position",
+    "v1_sessions_price_position_phase",
+)
 FEATURE_SET_DESCRIPTIONS = {
     "v1": (
-        "v1 current baseline with finite-difference acceleration, KAMA location/velocity/acceleration, "
+        "v1 original baseline with finite-difference acceleration, KAMA location/velocity/acceleration, "
         "volatility/order-flow ratios/interactions, futures-vs-spot ratios/interactions, "
         "spot multi-window returns, same-symbol futures-vs-spot basis/ratio/interaction features, "
         "and exact duplicate feature pruning with no duplicated raw futures market features"
@@ -64,6 +72,9 @@ FEATURE_SET_DESCRIPTIONS = {
     "v1_sessions_price_position": (
         "v1 plus UTC trading-session indicators and spot close position within rolling high/low ranges over "
         "5, 10, 15, 30, 60, 120, and 240 minute windows"
+    ),
+    "v1_sessions_price_position_phase": (
+        "current baseline: v1_sessions_price_position plus minute-of-hour sine/cosine phase features"
     ),
 }
 def parse_symbols(value: str) -> tuple[str, ...]:
@@ -403,13 +414,20 @@ def add_time_features(index: pd.DatetimeIndex, feature_set: str = "v1") -> pd.Da
     out["cos_hour"] = np.cos(2.0 * np.pi * index.hour / 24.0)
     out["sin_dayofweek"] = np.sin(2.0 * np.pi * index.dayofweek / 7.0)
     out["cos_dayofweek"] = np.cos(2.0 * np.pi * index.dayofweek / 7.0)
-    if feature_set in {"v1_sessions", "v1_sessions_price_position"}:
+    if feature_set in {
+        "v1_sessions",
+        "v1_sessions_price_position",
+        "v1_sessions_price_position_phase",
+    }:
         hour = index.hour + index.minute / 60.0
         out["session_asia"] = ((hour >= 0.0) & (hour < 8.0)).astype(np.float32)
         out["session_europe"] = ((hour >= 7.0) & (hour < 16.0)).astype(np.float32)
         out["session_us"] = ((hour >= 13.0) & (hour < 22.0)).astype(np.float32)
         out["session_asia_europe_overlap"] = ((hour >= 7.0) & (hour < 8.0)).astype(np.float32)
         out["session_europe_us_overlap"] = ((hour >= 13.0) & (hour < 16.0)).astype(np.float32)
+    if feature_set == "v1_sessions_price_position_phase":
+        out["sin_minute"] = np.sin(2.0 * np.pi * index.minute / 60.0)
+        out["cos_minute"] = np.cos(2.0 * np.pi * index.minute / 60.0)
     return out
 
 
@@ -444,7 +462,8 @@ def build_dataset(
         raise ValueError(f"feature_set must be one of {FEATURE_SETS}.")
     market_feature_set = (
         "enhanced_price_position"
-        if feature_set in {"v1_price_position", "v1_sessions_price_position"}
+        if feature_set
+        in {"v1_price_position", "v1_sessions_price_position", "v1_sessions_price_position_phase"}
         else "enhanced"
     )
     modeled_symbols = target_symbols or symbols
@@ -1473,7 +1492,7 @@ def main() -> None:
     parser.add_argument("--target-symbols", default=None)
     parser.add_argument("--target-horizon-minutes", type=int, default=DEFAULT_TARGET_HORIZON_MINUTES)
     parser.add_argument("--target-tie-policy", choices=["expected", "drop", "down"], default="expected")
-    parser.add_argument("--feature-set", choices=FEATURE_SETS, default="v1")
+    parser.add_argument("--feature-set", choices=FEATURE_SETS, default="v1_sessions_price_position_phase")
     parser.add_argument("--dataset-start", default=None)
     parser.add_argument("--initial-train-days", type=int, default=365)
     parser.add_argument("--train-window-days", type=int, default=None)

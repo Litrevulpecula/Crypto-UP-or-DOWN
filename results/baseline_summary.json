@@ -1,61 +1,61 @@
 {
   "baseline_dirs": {
-    "3m": "results/baseline_3m",
-    "5m": "results/baseline_5m",
     "10m": "results/baseline_10m",
     "15m": "results/baseline_15m",
-    "30m": "results/baseline_30m"
+    "30m": "results/baseline_30m",
+    "3m": "results/baseline_3m",
+    "5m": "results/baseline_5m"
   },
   "metrics": {
-    "3m": {
-      "annualized_sharpe": 7.71731918847,
-      "losses": 33142,
-      "max_drawdown": -89.8,
-      "pnl": 3679.6999999991,
-      "tie_trades": 1223,
-      "trades": 80545,
-      "win_rate_ex_ties": 0.5821840094803459,
-      "wins": 46180
-    },
-    "5m": {
-      "annualized_sharpe": 4.681822118685,
-      "losses": 26073,
-      "max_drawdown": -77.8000000001,
-      "pnl": 2050.7999999994,
-      "tie_trades": 186,
-      "trades": 61437,
-      "win_rate_ex_ties": 0.5743253171376794,
-      "wins": 35178
-    },
     "10m": {
-      "annualized_sharpe": 4.220778149623,
-      "losses": 12427,
-      "max_drawdown": -66.8,
-      "pnl": 1281.3,
-      "tie_trades": 29,
-      "trades": 29595,
-      "win_rate_ex_ties": 0.5796861259554894,
-      "wins": 17139
+      "annualized_sharpe": 3.711454113209471,
+      "losses": 15834,
+      "max_drawdown": -106.20000000001926,
+      "pnl": 1296.2000000000007,
+      "tie_trades": 50,
+      "trades": 37303,
+      "win_rate_ex_ties": 0.5749604058733525,
+      "wins": 21419
     },
     "15m": {
-      "annualized_sharpe": 5.967950689709,
-      "losses": 14064,
-      "max_drawdown": -62.3,
-      "pnl": 1989.2999999996,
-      "tie_trades": 27,
-      "trades": 34161,
-      "win_rate_ex_ties": 0.5879767973281772,
-      "wins": 20070
+      "annualized_sharpe": 6.23194757087191,
+      "losses": 13723,
+      "max_drawdown": -42.60000000000559,
+      "pnl": 2081.7000000000003,
+      "tie_trades": 33,
+      "trades": 33516,
+      "win_rate_ex_ties": 0.5901502254875608,
+      "wins": 19760
     },
     "30m": {
-      "annualized_sharpe": 2.2453107213284804,
-      "losses": 6824,
-      "max_drawdown": -59.39999999998116,
-      "pnl": 500.20000000000016,
-      "tie_trades": 14,
-      "trades": 15995,
-      "win_rate_ex_ties": 0.5729929291033102,
-      "wins": 9157
+      "annualized_sharpe": 2.4062038815077424,
+      "losses": 6474,
+      "max_drawdown": -88.20000000000181,
+      "pnl": 537.9000000000002,
+      "tie_trades": 9,
+      "trades": 15249,
+      "win_rate_ex_ties": 0.5751968503937008,
+      "wins": 8766
+    },
+    "3m": {
+      "annualized_sharpe": 9.247607173785257,
+      "losses": 35970,
+      "max_drawdown": -90.60000000000304,
+      "pnl": 4721.600000000002,
+      "tie_trades": 1532,
+      "trades": 88558,
+      "win_rate_ex_ties": 0.586675246478064,
+      "wins": 51056
+    },
+    "5m": {
+      "annualized_sharpe": 5.00789314171759,
+      "losses": 28498,
+      "max_drawdown": -86.00000000007549,
+      "pnl": 2332.200000000001,
+      "tie_trades": 258,
+      "trades": 67326,
+      "win_rate_ex_ties": 0.5750879704180831,
+      "wins": 38570
     }
   }
 }

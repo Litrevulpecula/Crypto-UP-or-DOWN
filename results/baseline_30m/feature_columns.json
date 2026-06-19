@@ -1,7 +1,7 @@
 {
   "features_by_symbol": {
     "BTCUSDT": {
-      "feature_count": 227,
+      "feature_count": 229,
       "features": [
         "BTC_spot_log_ret_1m",
         "BTC_spot_high_low_range",
@@ -229,11 +229,13 @@
         "session_europe",
         "session_us",
         "session_asia_europe_overlap",
-        "session_europe_us_overlap"
+        "session_europe_us_overlap",
+        "sin_minute",
+        "cos_minute"
       ]
     },
     "ETHUSDT": {
-      "feature_count": 227,
+      "feature_count": 229,
       "features": [
         "ETH_spot_log_ret_1m",
         "ETH_spot_high_low_range",
@@ -461,7 +463,9 @@
         "session_europe",
         "session_us",
         "session_asia_europe_overlap",
-        "session_europe_us_overlap"
+        "session_europe_us_overlap",
+        "sin_minute",
+        "cos_minute"
       ]
     }
   }

@@ -1,44 +1,39 @@
 {
   "baseline_alias": "results/baseline_5m",
   "combo": {
-    "annualized_sharpe": 4.681822118685,
-    "baseline_v1_full_sharpe": 4.585,
-    "beats_baseline_full_sharpe": true,
-    "beats_previous_v1_full_sharpe": true,
-    "losses": 26073,
-    "max_drawdown": -77.8000000001,
-    "pnl": 2050.7999999994,
-    "previous_v1_full_sharpe": 4.585,
-    "samples": 346962,
-    "tie_trades": 186,
-    "trades": 61437,
-    "win_rate_ex_ties": 0.5743253171376794,
-    "wins": 35178
+    "annualized_sharpe": 5.00789314171759,
+    "losses": 28498,
+    "max_drawdown": -86.00000000007549,
+    "pnl": 2332.200000000001,
+    "samples": 361497,
+    "tie_trades": 258,
+    "trades": 67326,
+    "win_rate_ex_ties": 0.5750879704180831,
+    "wins": 38570
   },
   "current_baseline": true,
-  "device_type": "gpu",
-  "download_note": "Full Kaggle output download completed successfully after retry: summary.json, predictions.csv, equity_curve.csv, feature_columns.json, folds.csv, optuna params, and 82 model files are present for this period.",
-  "gpu_probe": "supported",
   "period": "5m",
-  "source": "kaggle kernel v13 full output archived locally",
+  "source": "local walk-forward v1_sessions_price_position_phase promoted from feature_phase results",
   "symbols": {
     "BTC": {
-      "annualized_sharpe": 4.450534681174035,
-      "losses": 12800,
-      "pnl": 1253.8000000000009,
-      "tie_trades": 78,
-      "trades": 30455,
-      "win_rate": 0.5786285676663265,
-      "wins": 17577
+      "annualized_sharpe": 4.088591895961226,
+      "losses": 13610,
+      "max_drawdown": -46.10000000001071,
+      "pnl": 1210.1000000000008,
+      "tie_trades": 119,
+      "trades": 32269,
+      "win_rate_ex_ties": 0.5766718506998445,
+      "wins": 18540
     },
     "ETH": {
-      "annualized_sharpe": 2.8005908414728147,
-      "losses": 13273,
-      "pnl": 797.0000000000007,
-      "tie_trades": 108,
-      "trades": 30982,
-      "win_rate": 0.5700913389907365,
-      "wins": 17601
+      "annualized_sharpe": 3.6353143780607406,
+      "losses": 14888,
+      "max_drawdown": -129.10000000007517,
+      "pnl": 1122.1000000000008,
+      "tie_trades": 139,
+      "trades": 35057,
+      "win_rate_ex_ties": 0.5736296466006071,
+      "wins": 20030
     }
   }
 }

@@ -1,40 +1,39 @@
 {
   "baseline_alias": "results/baseline_30m",
   "combo": {
-    "annualized_sharpe": 2.2453107213284804,
-    "losses": 6824,
-    "max_drawdown": -59.39999999998116,
-    "pnl": 500.20000000000016,
-    "samples": 57770,
-    "tie_trades": 14,
-    "trades": 15995,
-    "win_rate_ex_ties": 0.5729929291033102,
-    "wins": 9157
+    "annualized_sharpe": 2.4062038815077424,
+    "losses": 6474,
+    "max_drawdown": -88.20000000000181,
+    "pnl": 537.9000000000002,
+    "samples": 60231,
+    "tie_trades": 9,
+    "trades": 15249,
+    "win_rate_ex_ties": 0.5751968503937008,
+    "wins": 8766
   },
   "current_baseline": true,
-  "device_type": "gpu",
-  "download_note": "Full Kaggle output download completed successfully: summary.json, predictions.csv, equity_curve.csv, feature_columns.json, folds.csv, optuna params, and fold model files are present for this period.",
-  "gpu_probe": "supported",
   "period": "30m",
-  "source": "kaggle kernel v15 full output archived locally",
+  "source": "local walk-forward v1_sessions_price_position_phase promoted from feature_phase results",
   "symbols": {
     "BTC": {
-      "annualized_sharpe": 2.240710741746046,
-      "losses": 3671,
-      "pnl": 337.4000000000002,
-      "tie_trades": 4,
-      "trades": 8686,
-      "win_rate": 0.5771711587191891,
-      "wins": 5011
+      "annualized_sharpe": 1.9513428185512918,
+      "losses": 3262,
+      "max_drawdown": -67.99999999999358,
+      "pnl": 282.5000000000002,
+      "tie_trades": 3,
+      "trades": 7696,
+      "win_rate_ex_ties": 0.5759781619654231,
+      "wins": 4431
     },
     "ETH": {
-      "annualized_sharpe": 1.1765894651681685,
-      "losses": 3153,
-      "pnl": 162.80000000000013,
-      "tie_trades": 10,
-      "trades": 7309,
-      "win_rate": 0.5680230168516235,
-      "wins": 4146
+      "annualized_sharpe": 1.7804597127846327,
+      "losses": 3212,
+      "max_drawdown": -43.999999999996135,
+      "pnl": 255.40000000000015,
+      "tie_trades": 6,
+      "trades": 7553,
+      "win_rate_ex_ties": 0.5744004240095402,
+      "wins": 4335
     }
   }
 }

@@ -1,102 +1,100 @@
 {
   "BTCUSDT": {
-    "best_value": 14.85446694571914,
+    "best_value": 15.298604403584669,
     "best_params": {
       "n_estimators": 2000,
-      "learning_rate": 0.013768819188315806,
-      "num_leaves": 40,
-      "min_child_samples": 220,
-      "subsample": 0.6241038957536338,
+      "learning_rate": 0.011343178571896928,
+      "num_leaves": 24,
+      "min_child_samples": 80,
+      "subsample": 0.7599025726528952,
       "subsample_freq": 1,
-      "colsample_bytree": 0.6283715954207382,
-      "reg_alpha": 0.7645466098675339,
-      "reg_lambda": 2.0078132163278104,
+      "colsample_bytree": 0.7227780074568463,
+      "reg_alpha": 0.00010929592787219404,
+      "reg_lambda": 0.019185373703841928,
       "objective": "binary",
       "random_state": 42,
-      "verbosity": -1,
-      "device_type": "gpu"
+      "verbosity": -1
     },
     "best_user_attrs": {
-      "best_iteration": 215,
-      "validation_auc": 0.5600477329266673,
-      "validation_thresholds": {
-        "mode": "double",
-        "threshold": 0.495,
-        "short_threshold": 0.44,
-        "long_threshold": 0.55,
-        "sharpe": 14.85446694571914,
-        "pnl": 319.0000000000001,
-        "trades": 3596,
-        "trade_fraction": 0.2081138954800625,
-        "win_rate": 0.6048970506399555,
-        "tie_trades": 2,
-        "tie_trade_fraction": 0.00011574743908791018,
-        "min_trades": 864
-      },
-      "validation_sharpe": 14.85446694571914,
-      "validation_pnl": 319.0000000000001
-    },
-    "metric": "sharpe",
-    "trials": 40,
-    "fit_train_start": "2022-01-01T04:05:00+00:00",
-    "fit_train_end": "2022-11-02T04:00:00+00:00",
-    "validation_start": "2022-11-02T04:05:00+00:00",
-    "validation_end": "2023-01-01T04:00:00+00:00",
-    "fit_weight_stats": {
-      "weight_min": 0.7381930900998231,
-      "weight_mean": 1.0,
-      "weight_max": 1.3173850321604845,
-      "weight_effective_rows": 85423.61335091997
-    }
-  },
-  "ETHUSDT": {
-    "best_value": 12.531059090636049,
-    "best_params": {
-      "n_estimators": 2000,
-      "learning_rate": 0.013564433833950739,
-      "num_leaves": 16,
-      "min_child_samples": 160,
-      "subsample": 0.6630608027542664,
-      "subsample_freq": 1,
-      "colsample_bytree": 0.5773963071793811,
-      "reg_alpha": 0.7894635616876894,
-      "reg_lambda": 3.631359171897452,
-      "objective": "binary",
-      "random_state": 42,
-      "verbosity": -1,
-      "device_type": "gpu"
-    },
-    "best_user_attrs": {
-      "best_iteration": 474,
-      "validation_auc": 0.5629297003844552,
+      "best_iteration": 293,
+      "validation_auc": 0.5625285879251443,
       "validation_thresholds": {
         "mode": "double",
         "threshold": 0.505,
-        "short_threshold": 0.46,
-        "long_threshold": 0.55,
-        "sharpe": 12.531059090636049,
-        "pnl": 340.40000000000015,
-        "trades": 5731,
-        "trade_fraction": 0.33167428670640664,
-        "win_rate": 0.588957055214724,
-        "tie_trades": 26,
-        "tie_trade_fraction": 0.0015047167081428323,
+        "short_threshold": 0.45,
+        "long_threshold": 0.56,
+        "sharpe": 15.298604403584669,
+        "pnl": 294.1,
+        "trades": 2891,
+        "trade_fraction": 0.16731292320157418,
+        "win_rate": 0.6121107266435987,
+        "tie_trades": 1,
+        "tie_trade_fraction": 5.787371954395509e-05,
         "min_trades": 864
       },
-      "validation_sharpe": 12.531059090636049,
-      "validation_pnl": 340.40000000000015
+      "validation_sharpe": 15.298604403584669,
+      "validation_pnl": 294.1
     },
     "metric": "sharpe",
-    "trials": 40,
+    "trials": 20,
     "fit_train_start": "2022-01-01T04:05:00+00:00",
     "fit_train_end": "2022-11-02T04:00:00+00:00",
     "validation_start": "2022-11-02T04:05:00+00:00",
     "validation_end": "2023-01-01T04:00:00+00:00",
     "fit_weight_stats": {
-      "weight_min": 0.7382536178800544,
-      "weight_mean": 1.0000000000000002,
-      "weight_max": 1.3174930504998268,
-      "weight_effective_rows": 85327.90494943487
+      "weight_min": 0.7381949272730906,
+      "weight_mean": 1.0,
+      "weight_max": 1.3173883107939428,
+      "weight_effective_rows": 85426.58104465064
+    }
+  },
+  "ETHUSDT": {
+    "best_value": 12.12539647378169,
+    "best_params": {
+      "n_estimators": 2000,
+      "learning_rate": 0.011015186033422664,
+      "num_leaves": 32,
+      "min_child_samples": 100,
+      "subsample": 0.7324279936868143,
+      "subsample_freq": 1,
+      "colsample_bytree": 0.8640703845572054,
+      "reg_alpha": 2.498713568466947e-05,
+      "reg_lambda": 0.003977782830811193,
+      "objective": "binary",
+      "random_state": 42,
+      "verbosity": -1
+    },
+    "best_user_attrs": {
+      "best_iteration": 599,
+      "validation_auc": 0.5606604681594274,
+      "validation_thresholds": {
+        "mode": "double",
+        "threshold": 0.505,
+        "short_threshold": 0.45,
+        "long_threshold": 0.56,
+        "sharpe": 12.12539647378169,
+        "pnl": 296.9000000000001,
+        "trades": 4663,
+        "trade_fraction": 0.2698651542334626,
+        "win_rate": 0.5913793103448276,
+        "tie_trades": 23,
+        "tie_trade_fraction": 0.0013310955495109671,
+        "min_trades": 864
+      },
+      "validation_sharpe": 12.12539647378169,
+      "validation_pnl": 296.9000000000001
+    },
+    "metric": "sharpe",
+    "trials": 20,
+    "fit_train_start": "2022-01-01T04:05:00+00:00",
+    "fit_train_end": "2022-11-02T04:00:00+00:00",
+    "validation_start": "2022-11-02T04:05:00+00:00",
+    "validation_end": "2023-01-01T04:00:00+00:00",
+    "fit_weight_stats": {
+      "weight_min": 0.7382554553581601,
+      "weight_mean": 0.9999999999999999,
+      "weight_max": 1.317496329677302,
+      "weight_effective_rows": 85330.8726897807
     }
   }
 }
