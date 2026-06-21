@@ -39,9 +39,3 @@ Run HiBT components:
 ```
 
 See `live/hibt/README_HIBT.md` for HiBT-specific details.
-
-## Notes
-
-- Do not commit secrets, runtime state, live signals, model artifacts, or large data.
-- `aligned_data_oos/**/1m_live.csv` is runtime overlay data, not training input.
-- `live/train_live_model.py` uses fixed checked-in parameters; do not run new production Optuna searches without a separate walk-forward study.
