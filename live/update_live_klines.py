@@ -395,13 +395,14 @@ async def periodic_rest_catchup(
     interval_seconds: float,
 ) -> None:
     while True:
+        boundary = (int(time.time() // 60) + 1) * 60
+        await asyncio.sleep(max(0.0, boundary - time.time() + interval_seconds))
         try:
             rest_backfill(store, symbols, minutes, log_success=False)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             log.warning("REST catch-up failed: %s", exc)
-        await asyncio.sleep(interval_seconds)
 
 
 async def run(args: argparse.Namespace) -> None:
