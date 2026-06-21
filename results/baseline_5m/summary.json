@@ -1,5 +1,5 @@
 {
-  "samples": 361497,
+  "samples": 361520,
   "symbols": [
     "BTCUSDT",
     "ETHUSDT"
@@ -9,7 +9,7 @@
   "win_payoff": 0.8,
   "loss_payoff": -1.0,
   "target_tie_payoff": -0.09999999999999998,
-  "feature_set": "v1_sessions_price_position_phase",
+  "feature_set": "v1_sessions_price_position_phase_peer_external",
   "threshold_mode": "double",
   "threshold_objective": "walk-forward validation annualized Sharpe",
   "min_trade_fraction": 0.05,
@@ -22,31 +22,32 @@
   "threshold_ema_alpha": 0.7,
   "threshold_extreme_adjustment": "short raw 0 uses validation probability min; long raw 1 uses validation probability max before EMA smoothing",
   "BTC": {
-    "samples": 361497,
-    "trades": 32269,
-    "trade_fraction": 0.08926491782781047,
-    "tie_trades": 119,
-    "tie_trade_fraction": 0.00032918668757970327,
-    "wins": 18540,
-    "losses": 13610,
-    "win_rate": 0.5766718506998445,
-    "auc": 0.5395631145440993,
-    "pnl": 1210.1000000000008,
-    "annualized_sharpe": 4.088586240873185,
-    "final_equity": 1210.0999999994674
+    "samples": 361520,
+    "trades": 33976,
+    "trade_fraction": 0.09398096924098252,
+    "tie_trades": 120,
+    "tie_trade_fraction": 0.00033193184332816993,
+    "wins": 19542,
+    "losses": 14314,
+    "win_rate": 0.5772093572778828,
+    "auc": 0.5395723066819222,
+    "pnl": 1307.6000000000008,
+    "annualized_sharpe": 4.30569129784009,
+    "final_equity": 1307.5999999993464
   },
+  "feature_set_description": "new baseline: BTC uses ETH peer external features; ETH uses BTC peer external features",
   "ETH": {
-    "samples": 361497,
-    "trades": 35057,
-    "trade_fraction": 0.09697729165110637,
-    "tie_trades": 139,
-    "tie_trade_fraction": 0.0003845121812905778,
-    "wins": 20030,
-    "losses": 14888,
-    "win_rate": 0.5736296466006071,
-    "auc": 0.5408616572662301,
-    "pnl": 1122.1000000000008,
-    "annualized_sharpe": 3.6353093499181943,
-    "final_equity": 1122.0999999995208
+    "samples": 361646,
+    "trades": 33730,
+    "trade_fraction": 0.09326800241119769,
+    "tie_trades": 145,
+    "tie_trade_fraction": 0.0004009445701044668,
+    "wins": 19413,
+    "losses": 14172,
+    "win_rate": 0.5780259044216168,
+    "auc": 0.5411231229800031,
+    "pnl": 1343.9000000000008,
+    "annualized_sharpe": 4.443092543717705,
+    "final_equity": 1343.899999999452
   }
 }

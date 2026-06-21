@@ -1,39 +1,39 @@
 {
   "BTCUSDT": {
-    "best_value": 15.298604403584669,
+    "best_value": 15.488476302873853,
     "best_params": {
       "n_estimators": 2000,
-      "learning_rate": 0.011343178571896928,
-      "num_leaves": 24,
-      "min_child_samples": 80,
-      "subsample": 0.7599025726528952,
+      "learning_rate": 0.01970887050482769,
+      "num_leaves": 48,
+      "min_child_samples": 260,
+      "subsample": 0.557184750245928,
       "subsample_freq": 1,
-      "colsample_bytree": 0.7227780074568463,
-      "reg_alpha": 0.00010929592787219404,
-      "reg_lambda": 0.019185373703841928,
+      "colsample_bytree": 0.8107466203112714,
+      "reg_alpha": 2.2576341561444657,
+      "reg_lambda": 3.683098931900698e-06,
       "objective": "binary",
       "random_state": 42,
       "verbosity": -1
     },
     "best_user_attrs": {
-      "best_iteration": 293,
-      "validation_auc": 0.5625285879251443,
+      "best_iteration": 129,
+      "validation_auc": 0.5622463056961058,
       "validation_thresholds": {
         "mode": "double",
-        "threshold": 0.505,
-        "short_threshold": 0.45,
-        "long_threshold": 0.56,
-        "sharpe": 15.298604403584669,
-        "pnl": 294.1,
-        "trades": 2891,
-        "trade_fraction": 0.16731292320157418,
-        "win_rate": 0.6121107266435987,
+        "threshold": 0.495,
+        "short_threshold": 0.44,
+        "long_threshold": 0.55,
+        "sharpe": 15.488476302873853,
+        "pnl": 329.9000000000001,
+        "trades": 3541,
+        "trade_fraction": 0.2049189814814815,
+        "win_rate": 0.6073446327683616,
         "tie_trades": 1,
-        "tie_trade_fraction": 5.787371954395509e-05,
+        "tie_trade_fraction": 5.787037037037037e-05,
         "min_trades": 864
       },
-      "validation_sharpe": 15.298604403584669,
-      "validation_pnl": 294.1
+      "validation_sharpe": 15.488476302873853,
+      "validation_pnl": 329.9000000000001
     },
     "metric": "sharpe",
     "trials": 20,
@@ -49,7 +49,7 @@
     }
   },
   "ETHUSDT": {
-    "best_value": 12.12539647378169,
+    "best_value": 14.466597787507482,
     "best_params": {
       "n_estimators": 2000,
       "learning_rate": 0.011015186033422664,
@@ -65,24 +65,24 @@
       "verbosity": -1
     },
     "best_user_attrs": {
-      "best_iteration": 599,
-      "validation_auc": 0.5606604681594274,
+      "best_iteration": 686,
+      "validation_auc": 0.5619111102699839,
       "validation_thresholds": {
         "mode": "double",
         "threshold": 0.505,
         "short_threshold": 0.45,
         "long_threshold": 0.56,
-        "sharpe": 12.12539647378169,
-        "pnl": 296.9000000000001,
-        "trades": 4663,
-        "trade_fraction": 0.2698651542334626,
-        "win_rate": 0.5913793103448276,
-        "tie_trades": 23,
-        "tie_trade_fraction": 0.0013310955495109671,
+        "sharpe": 14.466597787507482,
+        "pnl": 354.8000000000001,
+        "trades": 4696,
+        "trade_fraction": 0.2717749869784131,
+        "win_rate": 0.5980308219178082,
+        "tie_trades": 24,
+        "tie_trade_fraction": 0.001388969269054922,
         "min_trades": 864
       },
-      "validation_sharpe": 12.12539647378169,
-      "validation_pnl": 296.9000000000001
+      "validation_sharpe": 14.466597787507482,
+      "validation_pnl": 354.8000000000001
     },
     "metric": "sharpe",
     "trials": 20,

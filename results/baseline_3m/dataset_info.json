@@ -1,5 +1,5 @@
 {
-  "rows": 777705,
+  "rows": 777729,
   "start": "2022-01-01T04:03:00+00:00",
   "end": "2026-06-15T07:39:00+00:00",
   "symbols": [
@@ -19,8 +19,8 @@
   },
   "futures_features": true,
   "sample_minutes": 3,
-  "feature_set": "v1_sessions_price_position_phase",
-  "feature_set_description": "v1_sessions_price_position plus minute-of-hour sine/cosine phase features",
+  "feature_set": "v1_sessions_price_position_phase_peer_external",
+  "feature_set_description": "v1_sessions_price_position_phase plus ETH spot return and target-minus-ETH relative return features",
   "duplicate_feature_columns_removed": [],
   "all_nan_feature_columns_removed": [],
   "train_sample_minutes": 3,
@@ -32,8 +32,7 @@
   "target_tie_policy": "expected",
   "target_tie_payoff": -0.09999999999999998,
   "target_tie_counts_before_drop": {
-    "BTCUSDT": 14020,
-    "ETHUSDT": 11269
+    "BTCUSDT": 14020
   },
   "initial_train_days": 365,
   "train_window_days": null,

@@ -1,0 +1,51 @@
+{
+  "SOLUSDT": {
+    "best_value": 5.959302172383324,
+    "best_params": {
+      "n_estimators": 2000,
+      "learning_rate": 0.011343178571896928,
+      "num_leaves": 24,
+      "min_child_samples": 80,
+      "subsample": 0.7599025726528952,
+      "subsample_freq": 1,
+      "colsample_bytree": 0.7227780074568463,
+      "reg_alpha": 0.00010929592787219404,
+      "reg_lambda": 0.019185373703841928,
+      "objective": "binary",
+      "random_state": 42,
+      "verbosity": -1
+    },
+    "best_user_attrs": {
+      "best_iteration": 190,
+      "validation_auc": 0.5507316017444556,
+      "validation_thresholds": {
+        "mode": "double",
+        "threshold": 0.53,
+        "short_threshold": 0.47000000000000003,
+        "long_threshold": 0.59,
+        "sharpe": 5.959302172383324,
+        "pnl": 66.30000000000004,
+        "trades": 1119,
+        "trade_fraction": 0.2062672811059908,
+        "win_rate": 0.5972495088408645,
+        "tie_trades": 101,
+        "tie_trade_fraction": 0.018617511520737328,
+        "min_trades": 272
+      },
+      "validation_sharpe": 5.959302172383324,
+      "validation_pnl": 66.30000000000004
+    },
+    "metric": "sharpe",
+    "trials": 20,
+    "fit_train_start": "2022-01-01T04:15:00+00:00",
+    "fit_train_end": "2022-11-02T04:00:00+00:00",
+    "validation_start": "2022-11-02T04:15:00+00:00",
+    "validation_end": "2023-01-01T02:15:00+00:00",
+    "fit_weight_stats": {
+      "weight_min": 0.7379811718964621,
+      "weight_mean": 1.0,
+      "weight_max": 1.3169894730962215,
+      "weight_effective_rows": 27402.88343144931
+    }
+  }
+}

@@ -1,7 +1,7 @@
 {
   "features_by_symbol": {
     "BTCUSDT": {
-      "feature_count": 229,
+      "feature_count": 241,
       "features": [
         "BTC_spot_log_ret_1m",
         "BTC_spot_high_low_range",
@@ -221,6 +221,18 @@
         "BTC_futures_spot_realized_vol_ratio_60m",
         "BTC_basis_x_ret_spread_60m",
         "BTC_buy_diff_x_ret_spread_60m",
+        "BTC_ETH_spot_log_ret_1m",
+        "BTC_relative_ETH_spot_log_ret_1m",
+        "BTC_ETH_spot_log_ret_3m",
+        "BTC_relative_ETH_spot_log_ret_3m",
+        "BTC_ETH_spot_log_ret_5m",
+        "BTC_relative_ETH_spot_log_ret_5m",
+        "BTC_ETH_spot_log_ret_15m",
+        "BTC_relative_ETH_spot_log_ret_15m",
+        "BTC_ETH_spot_log_ret_30m",
+        "BTC_relative_ETH_spot_log_ret_30m",
+        "BTC_ETH_spot_log_ret_60m",
+        "BTC_relative_ETH_spot_log_ret_60m",
         "sin_hour",
         "cos_hour",
         "sin_dayofweek",
@@ -235,7 +247,7 @@
       ]
     },
     "ETHUSDT": {
-      "feature_count": 229,
+      "feature_count": 241,
       "features": [
         "ETH_spot_log_ret_1m",
         "ETH_spot_high_low_range",
@@ -455,6 +467,18 @@
         "ETH_futures_spot_realized_vol_ratio_60m",
         "ETH_basis_x_ret_spread_60m",
         "ETH_buy_diff_x_ret_spread_60m",
+        "ETH_btc_spot_log_ret_1m",
+        "ETH_relative_btc_spot_log_ret_1m",
+        "ETH_btc_spot_log_ret_3m",
+        "ETH_relative_btc_spot_log_ret_3m",
+        "ETH_btc_spot_log_ret_5m",
+        "ETH_relative_btc_spot_log_ret_5m",
+        "ETH_btc_spot_log_ret_15m",
+        "ETH_relative_btc_spot_log_ret_15m",
+        "ETH_btc_spot_log_ret_30m",
+        "ETH_relative_btc_spot_log_ret_30m",
+        "ETH_btc_spot_log_ret_60m",
+        "ETH_relative_btc_spot_log_ret_60m",
         "sin_hour",
         "cos_hour",
         "sin_dayofweek",

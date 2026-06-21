@@ -1,61 +1,47 @@
 {
+  "feature_set": "v1_sessions_price_position_phase_peer_external",
   "baseline_dirs": {
+    "3m": "results/baseline_3m",
+    "5m": "results/baseline_5m",
     "10m": "results/baseline_10m",
     "15m": "results/baseline_15m",
-    "30m": "results/baseline_30m",
-    "3m": "results/baseline_3m",
-    "5m": "results/baseline_5m"
+    "30m": "results/baseline_30m"
   },
   "metrics": {
-    "10m": {
-      "annualized_sharpe": 3.711454113209471,
-      "losses": 15834,
-      "max_drawdown": -106.20000000001926,
-      "pnl": 1296.2000000000007,
-      "tie_trades": 50,
-      "trades": 37303,
-      "win_rate_ex_ties": 0.5749604058733525,
-      "wins": 21419
-    },
-    "15m": {
-      "annualized_sharpe": 6.23194757087191,
-      "losses": 13723,
-      "max_drawdown": -42.60000000000559,
-      "pnl": 2081.7000000000003,
-      "tie_trades": 33,
-      "trades": 33516,
-      "win_rate_ex_ties": 0.5901502254875608,
-      "wins": 19760
-    },
-    "30m": {
-      "annualized_sharpe": 2.4062038815077424,
-      "losses": 6474,
-      "max_drawdown": -88.20000000000181,
-      "pnl": 537.9000000000002,
-      "tie_trades": 9,
-      "trades": 15249,
-      "win_rate_ex_ties": 0.5751968503937008,
-      "wins": 8766
-    },
     "3m": {
-      "annualized_sharpe": 9.247607173785257,
-      "losses": 35970,
-      "max_drawdown": -90.60000000000304,
-      "pnl": 4721.600000000002,
-      "tie_trades": 1532,
-      "trades": 88558,
-      "win_rate_ex_ties": 0.586675246478064,
-      "wins": 51056
+      "samples": 602786,
+      "trades": 81867,
+      "pnl": 4950.700000000003,
+      "annualized_sharpe": 9.495363585005192,
+      "max_drawdown": -59.39999999996235
     },
     "5m": {
-      "annualized_sharpe": 5.00789314171759,
-      "losses": 28498,
-      "max_drawdown": -86.00000000007549,
-      "pnl": 2332.200000000001,
-      "tie_trades": 258,
-      "trades": 67326,
-      "win_rate_ex_ties": 0.5750879704180831,
-      "wins": 38570
+      "samples": 361669,
+      "trades": 57523,
+      "pnl": 2651.500000000001,
+      "annualized_sharpe": 5.661514429107962,
+      "max_drawdown": -84.30000000007112
+    },
+    "10m": {
+      "samples": 180834,
+      "trades": 29216,
+      "pnl": 1227.0000000000007,
+      "annualized_sharpe": 3.607272591487992,
+      "max_drawdown": -123.50000000003934
+    },
+    "15m": {
+      "samples": 120555,
+      "trades": 29101,
+      "pnl": 2291.2000000000007,
+      "annualized_sharpe": 6.408127764268709,
+      "max_drawdown": -50.10000000001014
+    },
+    "30m": {
+      "samples": 60276,
+      "trades": 12040,
+      "pnl": 613.3000000000001,
+      "annualized_sharpe": 2.8162551832552793,
+      "max_drawdown": -83.80000000004361
     }
   }
 }

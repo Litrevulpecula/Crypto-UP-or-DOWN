@@ -1,39 +1,36 @@
 {
   "baseline_alias": "results/baseline_5m",
-  "combo": {
-    "annualized_sharpe": 5.00789314171759,
-    "losses": 28498,
-    "max_drawdown": -86.00000000007549,
-    "pnl": 2332.200000000001,
-    "samples": 361497,
-    "tie_trades": 258,
-    "trades": 67326,
-    "win_rate_ex_ties": 0.5750879704180831,
-    "wins": 38570
-  },
   "current_baseline": true,
   "period": "5m",
-  "source": "local walk-forward v1_sessions_price_position_phase promoted from feature_phase results",
+  "source": "merged peer external BTC/ETH walk-forward results",
+  "feature_set": "v1_sessions_price_position_phase_peer_external",
   "symbols": {
     "BTC": {
-      "annualized_sharpe": 4.088591895961226,
-      "losses": 13610,
-      "max_drawdown": -46.10000000001071,
-      "pnl": 1210.1000000000008,
-      "tie_trades": 119,
-      "trades": 32269,
-      "win_rate_ex_ties": 0.5766718506998445,
-      "wins": 18540
+      "trades": 33976,
+      "tie_trades": 120,
+      "wins": 19542,
+      "losses": 14314,
+      "win_rate_ex_ties": 0.5772093572778828,
+      "pnl": 1307.6000000000008,
+      "annualized_sharpe": 4.30480412553707,
+      "max_drawdown": -63.20000000001869
     },
     "ETH": {
-      "annualized_sharpe": 3.6353143780607406,
-      "losses": 14888,
-      "max_drawdown": -129.10000000007517,
-      "pnl": 1122.1000000000008,
-      "tie_trades": 139,
-      "trades": 35057,
-      "win_rate_ex_ties": 0.5736296466006071,
-      "wins": 20030
+      "trades": 33730,
+      "tie_trades": 145,
+      "wins": 19413,
+      "losses": 14172,
+      "win_rate_ex_ties": 0.5780259044216168,
+      "pnl": 1343.9000000000008,
+      "annualized_sharpe": 4.442951238185344,
+      "max_drawdown": -102.100000000058
     }
+  },
+  "combo": {
+    "samples": 361669,
+    "trades": 57523,
+    "pnl": 2651.500000000001,
+    "annualized_sharpe": 5.661514429107962,
+    "max_drawdown": -84.30000000007112
   }
 }
