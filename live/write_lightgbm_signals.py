@@ -102,7 +102,15 @@ def build_live_feature_frame(
         raise ValueError(f"feature_set must be one of {base.FEATURE_SETS}.")
     market_feature_set = (
         "enhanced_price_position"
-        if feature_set in {"v1_price_position", "v1_sessions_price_position"}
+        if feature_set
+        in {
+            "v1_price_position",
+            "v1_sessions_price_position",
+            "v1_sessions_price_position_phase",
+            "v1_sessions_price_position_phase_btc_external",
+            "v1_sessions_price_position_phase_eth_external",
+            "v1_sessions_price_position_phase_peer_external",
+        }
         else "enhanced"
     )
     spot_frames = {}
@@ -130,6 +138,7 @@ def build_live_feature_frame(
     common_index = common_index.sort_values()
 
     parts = []
+    spot_closes = {symbol: spot_frames[symbol].loc[common_index, "close"] for symbol in symbols}
     for symbol in symbols:
         prefix = symbol.replace("USDT", "")
         spot = spot_frames[symbol].loc[common_index]
@@ -139,6 +148,14 @@ def build_live_feature_frame(
             base.add_spot_futures_features(spot, futures, prefix, market_feature_set),
             spot[["close"]].rename(columns={"close": f"{prefix}_spot_close"}),
         ]
+        if feature_set == "v1_sessions_price_position_phase_btc_external":
+            symbol_parts.append(base.add_external_symbol_features(spot_closes, symbol, "BTCUSDT"))
+        if feature_set == "v1_sessions_price_position_phase_eth_external":
+            symbol_parts.append(base.add_external_symbol_features(spot_closes, symbol, "ETHUSDT"))
+        if feature_set == "v1_sessions_price_position_phase_peer_external":
+            peer_symbol = {"BTCUSDT": "ETHUSDT", "ETHUSDT": "BTCUSDT"}.get(symbol)
+            if peer_symbol is not None:
+                symbol_parts.append(base.add_external_symbol_features(spot_closes, symbol, peer_symbol))
         parts.extend(symbol_parts)
 
     frame = pd.concat(parts, axis=1)

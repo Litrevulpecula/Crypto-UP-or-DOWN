@@ -331,16 +331,18 @@ def rest_backfill(
     minutes: int,
     *,
     log_success: bool = True,
+    markets: tuple[str, ...] = (SPOT_MARKET, FUTURES_MARKET),
 ) -> None:
     if minutes <= 0:
         return
     end_ms = latest_closed_open_time_ms()
     start_ms = end_ms - (minutes - 1) * 60_000
-    markets = (
-        (SPOT_MARKET, SPOT_REST),
-        (FUTURES_MARKET, FUTURES_REST),
-    )
-    for market, endpoint in markets:
+    endpoints = {
+        SPOT_MARKET: SPOT_REST,
+        FUTURES_MARKET: FUTURES_REST,
+    }
+    for market in markets:
+        endpoint = endpoints[market]
         for symbol in symbols:
             raw_rows = fetch_rest_klines(endpoint, symbol, start_ms, end_ms)
             rows = [rest_kline_row(row) for row in raw_rows]
@@ -393,12 +395,13 @@ async def periodic_rest_catchup(
     symbols: tuple[str, ...],
     minutes: int,
     interval_seconds: float,
+    markets: tuple[str, ...],
 ) -> None:
     while True:
         boundary = (int(time.time() // 60) + 1) * 60
         await asyncio.sleep(max(0.0, boundary - time.time() + interval_seconds))
         try:
-            rest_backfill(store, symbols, minutes, log_success=False)
+            await asyncio.to_thread(rest_backfill, store, symbols, minutes, log_success=False, markets=markets)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -426,7 +429,7 @@ async def run(args: argparse.Namespace) -> None:
         consume_market(store, FUTURES_MARKET, FUTURES_WS, symbols),
     ]
     if args.rest_catchup_minutes > 0 and args.rest_catchup_seconds > 0:
-        tasks.append(periodic_rest_catchup(store, symbols, args.rest_catchup_minutes, args.rest_catchup_seconds))
+        tasks.append(periodic_rest_catchup(store, symbols, args.rest_catchup_minutes, args.rest_catchup_seconds, tuple(args.rest_catchup_market)))
     await asyncio.gather(*tasks)
 
 
@@ -439,6 +442,7 @@ def main() -> int:
     parser.add_argument("--rest-backfill-only", action="store_true")
     parser.add_argument("--rest-catchup-minutes", type=int, default=15)
     parser.add_argument("--rest-catchup-seconds", type=float, default=10.0)
+    parser.add_argument("--rest-catchup-market", action="append", default=[FUTURES_MARKET], choices=(SPOT_MARKET, FUTURES_MARKET))
     parser.add_argument("--signal-file", type=Path, default=None)
     parser.add_argument("--signal-model-dir", action="append", default=[])
     parser.add_argument("--signal-feature-set", default="v1")

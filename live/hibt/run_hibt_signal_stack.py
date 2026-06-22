@@ -69,7 +69,7 @@ def main() -> int:
     parser.add_argument("--kline-log-level", default="INFO")
     parser.add_argument("--kline-keep-rows", type=int, default=3000)
     parser.add_argument("--rest-backfill-minutes", type=int, default=360)
-    parser.add_argument("--rest-catchup-minutes", type=int, default=0)
+    parser.add_argument("--rest-catchup-minutes", type=int, default=2)
     parser.add_argument("--rest-catchup-seconds", type=float, default=0.05)
     parser.add_argument("--keep-existing-signal-file", action="store_true")
     args = parser.parse_args()
