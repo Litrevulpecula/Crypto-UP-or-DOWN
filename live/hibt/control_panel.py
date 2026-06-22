@@ -140,8 +140,8 @@ INDEX_HTML = r"""<!doctype html>
           <section class="panel">
             <h2>Timeframes</h2>
             <table class="timeframes">
-              <colgroup><col style="width:17%"><col style="width:15%"><col style="width:28%"><col style="width:20%"><col style="width:20%"></colgroup>
-              <thead><tr><th>周期</th><th class="num">次数</th><th class="num">胜率</th><th class="num">耗时</th><th class="num">盈亏</th></tr></thead>
+              <colgroup><col style="width:13%"><col style="width:12%"><col style="width:25%"><col style="width:16%"><col style="width:16%"><col style="width:18%"></colgroup>
+              <thead><tr><th>周期</th><th class="num">次数</th><th class="num">胜率</th><th class="num">信号</th><th class="num">执行</th><th class="num">盈亏</th></tr></thead>
               <tbody id="timeframes"></tbody>
             </table>
           </section>
@@ -150,8 +150,8 @@ INDEX_HTML = r"""<!doctype html>
           <h2>Recent Orders</h2>
           <div class="table-scroll">
             <table>
-              <colgroup><col style="width:18%"><col style="width:17%"><col style="width:11%"><col style="width:11%"><col style="width:13%"><col style="width:14%"><col style="width:16%"></colgroup>
-              <thead><tr><th>时间</th><th>市场</th><th>方向</th><th class="num">金额</th><th class="num">耗时</th><th>结果</th><th class="num">盈亏</th></tr></thead>
+              <colgroup><col style="width:12%"><col style="width:14%"><col style="width:9%"><col style="width:9%"><col style="width:11%"><col style="width:11%"><col style="width:11%"><col style="width:10%"><col style="width:13%"></colgroup>
+              <thead><tr><th>时间</th><th>市场</th><th>方向</th><th class="num">金额</th><th class="num">总耗时</th><th class="num">信号</th><th class="num">执行</th><th>结果</th><th class="num">盈亏</th></tr></thead>
               <tbody id="recent"></tbody>
             </table>
           </div>
@@ -225,7 +225,9 @@ INDEX_HTML = r"""<!doctype html>
       $("stats").innerHTML = [
         ["执行次数", stats.count],
         ["提交成功率", pct(stats.success_rate)],
-        ["平均耗时", secs(stats.avg_order_delay_seconds)],
+        ["总耗时", secs(stats.avg_order_delay_seconds)],
+        ["信号延迟", secs(stats.avg_signal_delay_seconds)],
+        ["执行延迟", secs(stats.avg_trader_delay_seconds)],
         [winLabel, pct(stats.win_rate)],
         ["总盈亏", money(stats.pnl)],
       ].map(([label, value]) => `<div class="panel stat"><span class="muted">${label}</span><b>${value}</b></div>`).join("");
@@ -235,7 +237,8 @@ INDEX_HTML = r"""<!doctype html>
           <td><span class="pill">${name}</span></td>
           <td class="num">${row.count}</td>
           <td class="num">${winText(row)}</td>
-          <td class="num">${secs(row.avg_order_delay_seconds)}</td>
+          <td class="num">${secs(row.avg_signal_delay_seconds)}</td>
+          <td class="num">${secs(row.avg_trader_delay_seconds)}</td>
           <td class="num ${pnlClass(row.pnl)}">${money(row.pnl)}</td>
         </tr>
       `).join("");
@@ -340,6 +343,8 @@ INDEX_HTML = r"""<!doctype html>
           <td><span class="tag">${sideText(row.side)}</span></td>
           <td class="num">${money(row.amount)}</td>
           <td class="num">${secs(row.order_delay_seconds)}</td>
+          <td class="num">${secs(row.signal_delay_seconds)}</td>
+          <td class="num">${secs(row.trader_delay_seconds)}</td>
           <td class="${cellClass(row.outcome)}">${row.outcome || "pending"}</td>
           <td class="num ${pnlClass(row.pnl)}">${money(row.pnl)}</td>
         </tr>
@@ -478,7 +483,13 @@ def stats(records: list[dict[str, Any]], closes: dict[str, dict[int, float]]) ->
 def summarize(items: list[tuple[dict[str, Any], dict[str, Any] | None]], total: int | None = None) -> dict[str, Any]:
     count = len(items)
     successes = sum(1 for row, _outcome in items if row.get("success"))
-    delays = [value for row, _outcome in items if (value := order_delay_seconds(row)) is not None]
+    latency_rows = [
+        (total_delay, signal_delay, trader_delay)
+        for row, _outcome in items
+        if (total_delay := order_delay_seconds(row)) is not None
+        and (signal_delay := signal_delay_seconds(row)) is not None
+        and (trader_delay := trader_delay_seconds(row)) is not None
+    ]
     outcomes = [outcome for row, outcome in items if row.get("success") and outcome is not None]
     wins = sum(1 for outcome in outcomes if outcome["win"])
     pnl = sum(pnl_for(row, outcome) for row, outcome in items if row.get("success") and outcome is not None)
@@ -487,7 +498,9 @@ def summarize(items: list[tuple[dict[str, Any], dict[str, Any] | None]], total: 
         "share": None if total in (None, 0) else count / total,
         "success": successes,
         "success_rate": None if count == 0 else successes / count,
-        "avg_order_delay_seconds": None if not delays else sum(delays) / len(delays),
+        "avg_order_delay_seconds": None if not latency_rows else sum(row[0] for row in latency_rows) / len(latency_rows),
+        "avg_signal_delay_seconds": None if not latency_rows else sum(row[1] for row in latency_rows) / len(latency_rows),
+        "avg_trader_delay_seconds": None if not latency_rows else sum(row[2] for row in latency_rows) / len(latency_rows),
         "settled": len(outcomes),
         "wins": wins,
         "win_rate": None if not outcomes else wins / len(outcomes),
@@ -522,6 +535,8 @@ def recent(records: list[dict[str, Any]], closes: dict[str, dict[int, float]]) -
                 "side": signal.get("side", ""),
                 "amount": parse_amount(order.get("amount")),
                 "order_delay_seconds": order_delay_seconds(row),
+                "signal_delay_seconds": signal_delay_seconds(row),
+                "trader_delay_seconds": trader_delay_seconds(row),
                 "success": bool(row.get("success")),
                 "outcome": None if outcome is None else ("win" if outcome["win"] else "loss"),
                 "pnl": None if outcome is None else pnl_for(row, outcome),
@@ -543,6 +558,26 @@ def order_delay_seconds(row: dict[str, Any]) -> float | None:
     except (TypeError, ValueError):
         return None
     return (order_start - event_start).total_seconds()
+
+
+def signal_delay_seconds(row: dict[str, Any]) -> float | None:
+    signal = row.get("signal") if isinstance(row.get("signal"), dict) else {}
+    try:
+        event_start = parse_dt(signal.get("decision_time"))
+        generated_at = parse_dt(signal.get("signal_generated_at"))
+    except (TypeError, ValueError):
+        return None
+    return (generated_at - event_start).total_seconds()
+
+
+def trader_delay_seconds(row: dict[str, Any]) -> float | None:
+    signal = row.get("signal") if isinstance(row.get("signal"), dict) else {}
+    try:
+        generated_at = parse_dt(signal.get("signal_generated_at"))
+        order_start = parse_dt(row.get("order_started_at"))
+    except (TypeError, ValueError):
+        return None
+    return (order_start - generated_at).total_seconds()
 
 
 def pnl_for(row: dict[str, Any], outcome: dict[str, Any]) -> float:
@@ -728,6 +763,7 @@ def self_test() -> None:
                 "timestamp": decision.isoformat(),
                 "decision_time": decision.isoformat(),
                 "last_kline_time": (decision - timedelta(minutes=1)).isoformat(),
+                "signal_generated_at": (decision + timedelta(seconds=1)).isoformat(),
             },
             "order": {"amount": "3", "signal_id": "x"},
             "payout_rate": 0.8,
