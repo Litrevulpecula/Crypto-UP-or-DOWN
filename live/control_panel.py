@@ -205,9 +205,9 @@ INDEX_HTML = r"""<!doctype html>
           <label class="toggle">${isTurbo ? "TurboFlow" : "HiBT"} <span class="switch"><input id="enabled" type="checkbox"><span class="slider"></span></span></label>
         </section>
         <section class="panel">
-          <h2>${isTurbo ? "Dry-run / Fallback" : "Order"}</h2>
+          <h2>${isTurbo ? "Dry-run" : "Order"}</h2>
           ${isTurbo
-            ? `<label class="field">Dry-run / fallback bankroll<input id="bankroll" type="number" min="2" step="0.01"></label>`
+            ? `<label class="field">Dry-run bankroll<input id="bankroll" type="number" min="2" step="0.01"></label>`
             : `<label class="field">下单金额<input id="order_amount" type="number" min="0.01" step="0.01"></label>`}
           <div class="actions">
             <button id="refresh">刷新</button>
@@ -382,7 +382,7 @@ INDEX_HTML = r"""<!doctype html>
       kellyFractions = data.kelly_fractions || [];
       $("venue_title").textContent = data.venue_name || "Execution";
       $("venue_note").textContent = currentVenue === "turboflow"
-        ? "Live uses TurboFlow USDT available balance; this number is only for dry-run or balance API fallback."
+        ? "Live orders use the TurboFlow USDT available balance. This number only changes dry-run sizing."
         : "金额和开关写入控制文件，trader 下一次信号处理生效。";
       setForm(data.control);
       renderStats(data.stats);

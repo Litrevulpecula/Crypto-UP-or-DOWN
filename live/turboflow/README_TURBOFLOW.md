@@ -18,4 +18,4 @@ export TURBOFLOW_POOL_ID='...'
 .venv/bin/python live/turboflow/run_turboflow_api_trader.py --live --timeframes 3m,5m,15m
 ```
 
-Live trading reads the TurboFlow USDT balance from `GET /account/assets/v2?fill_coin_sub_info=yes`; the control-panel bankroll is only the fallback. BTC/ETH 3m/5m/15m use the configured 1/4 Kelly fractions with a `$2.00` minimum.
+Live trading reads the TurboFlow USDT balance from `GET /account/assets/v2?fill_coin_sub_info=yes`; if that balance cannot be read, live orders are skipped. The control-panel bankroll only changes dry-run sizing. BTC/ETH 3m/5m/15m use the configured 1/4 Kelly fractions with a `$2.00` minimum.

@@ -116,7 +116,12 @@ def main() -> int:
                 next(events)
                 continue
             for signal in signals:
-                bankroll, bankroll_source = balance.current(control["bankroll"])
+                try:
+                    bankroll, bankroll_source = balance.current(control["bankroll"])
+                except RuntimeError as exc:
+                    print(f"skip {signal.signal_id}: {exc}", flush=True)
+                    state.mark(signal.signal_id)
+                    continue
                 amount = order_amount(signal, bankroll)
                 order_started_at = datetime.now(timezone.utc).isoformat()
                 rate = return_rate_from_map(rates, symbol=signal.symbol, timeframe=signal.timeframe, side=signal.side)
@@ -240,22 +245,25 @@ class BalanceCache:
     def __init__(self, credentials: TurboFlowCredentials, live: bool, fallback: Any) -> None:
         self.credentials = credentials
         self.live = live
-        self.value = positive_float(fallback, DEFAULT_BANKROLL)
-        self.source = "fallback"
+        self.value = None if live else positive_float(fallback, DEFAULT_BANKROLL)
+        self.source = "turboflow" if live else "dry_run"
         self.refresh_at = 0.0
 
     def current(self, fallback: Any) -> tuple[float, str]:
         if not self.live:
             self.value = positive_float(fallback, DEFAULT_BANKROLL)
-            self.source = "fallback"
-        elif self.source == "fallback":
-            self.value = positive_float(fallback, DEFAULT_BANKROLL)
-        return self.value, self.source
+            self.source = "dry_run"
+            return self.value, self.source
+        if self.value is None:
+            self.refresh(fallback)
+        if self.value is None:
+            raise RuntimeError("TurboFlow balance unavailable; refusing live order")
+        return self.value, "turboflow"
 
     def refresh(self, fallback: Any) -> None:
         if not self.live:
             self.value = positive_float(fallback, DEFAULT_BANKROLL)
-            self.source = "fallback"
+            self.source = "dry_run"
             return
         now = time.monotonic()
         if now >= self.refresh_at:
@@ -264,9 +272,9 @@ class BalanceCache:
                 self.value = account_balance(self.credentials, timeout_seconds=BALANCE_TIMEOUT_SECONDS)
                 self.source = "turboflow"
             except RuntimeError as exc:
-                self.value = positive_float(fallback, DEFAULT_BANKROLL)
-                self.source = "fallback"
-                print(f"balance fallback: {exc}", flush=True)
+                self.value = None
+                self.source = "unavailable"
+                print(f"balance unavailable: {exc}", flush=True)
 
     def debit(self, amount: float) -> None:
         if self.live and self.source == "turboflow":
