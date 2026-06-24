@@ -33,6 +33,19 @@ DEFAULT_MODEL_DIRS = {
 }
 MODEL_BUNDLE_CACHE: dict[tuple[Path, tuple[str, ...]], dict[str, Any]] = {}
 BASE_OPEN_TIME_CACHE: dict[Path, pd.Timestamp | None] = {}
+READ_1M_COLUMNS = [
+    "open_time",
+    "open",
+    "high",
+    "low",
+    "close",
+    "volume",
+    "quote_volume",
+    "count",
+    "taker_buy_volume",
+    "taker_buy_quote_volume",
+    "is_missing",
+]
 
 
 def normalize_symbol(value: str) -> str:
@@ -97,6 +110,7 @@ def build_live_feature_frame(
     sample_minutes: int,
     dataset_start: pd.Timestamp | None,
     feature_set: str,
+    live_rows_by_path: dict[Path, dict[int, dict[str, str]]] | None = None,
 ) -> pd.DataFrame:
     if feature_set not in base.FEATURE_SETS:
         raise ValueError(f"feature_set must be one of {base.FEATURE_SETS}.")
@@ -118,16 +132,8 @@ def build_live_feature_frame(
     common_index: pd.DatetimeIndex | None = None
 
     for symbol in symbols:
-        futures = base.read_1m(
-            data_root / base.FUTURES_MARKET / symbol / "1m.csv.gz",
-            dataset_start,
-            target_horizon_minutes=sample_minutes,
-        )
-        spot = base.read_1m(
-            data_root / base.SPOT_MARKET / symbol / "1m.csv.gz",
-            dataset_start,
-            target_horizon_minutes=sample_minutes,
-        )
+        futures = read_live_1m(data_root, base.FUTURES_MARKET, symbol, sample_minutes, dataset_start, live_rows_by_path)
+        spot = read_live_1m(data_root, base.SPOT_MARKET, symbol, sample_minutes, dataset_start, live_rows_by_path)
         spot_frames[symbol] = spot
         futures_frames[symbol] = futures
         symbol_index = spot.index.intersection(futures.index)
@@ -170,6 +176,58 @@ def build_live_feature_frame(
     if all_nan_columns:
         frame = frame.drop(columns=all_nan_columns)
     return frame.dropna()
+
+
+def read_live_1m(
+    data_root: Path,
+    market: str,
+    symbol: str,
+    sample_minutes: int,
+    dataset_start: pd.Timestamp | None,
+    live_rows_by_path: dict[Path, dict[int, dict[str, str]]] | None,
+) -> pd.DataFrame:
+    path = data_root / market / symbol / "1m.csv.gz"
+    warmup_minutes = max(base.WINDOWS + base.ROLLING_WINDOWS) + sample_minutes + 5
+    live_path = path.with_name("1m_live.csv")
+    rows = None if live_rows_by_path is None else live_rows_by_path.get(live_path)
+    if rows is not None and live_rows_cover_warmup(rows, warmup_minutes):
+        return frame_from_live_rows(rows, warmup_minutes, dataset_start)
+    return base.read_1m(path, dataset_start, target_horizon_minutes=sample_minutes)
+
+
+def live_rows_cover_warmup(rows: dict[int, dict[str, str]], warmup_minutes: int) -> bool:
+    if len(rows) < warmup_minutes + 1:
+        return False
+    tail = sorted(rows)[-(warmup_minutes + 1) :]
+    return all((right - left) == 60_000 for left, right in zip(tail, tail[1:]))
+
+
+def frame_from_live_rows(
+    rows: dict[int, dict[str, str]],
+    warmup_minutes: int,
+    dataset_start: pd.Timestamp | None,
+) -> pd.DataFrame:
+    keys = sorted(rows)[-(warmup_minutes + 1) :]
+    records = [{column: rows[key].get(column, "") for column in READ_1M_COLUMNS} for key in keys]
+    frame = pd.DataFrame.from_records(records, columns=READ_1M_COLUMNS)
+    frame["time"] = pd.to_datetime(pd.to_numeric(frame["open_time"], errors="coerce"), unit="ms", utc=True)
+    frame = frame.drop(columns=["open_time"]).set_index("time").sort_index()
+    frame = frame.loc[~frame.index.duplicated(keep="last")]
+    frame["is_missing"] = pd.to_numeric(frame["is_missing"], errors="coerce")
+    frame = frame.loc[frame["is_missing"].eq(0)].drop(columns=["is_missing"])
+    for column in frame.columns:
+        frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    if dataset_start is not None:
+        warmup_start = dataset_start - pd.Timedelta(minutes=warmup_minutes)
+        frame = frame.loc[frame.index >= warmup_start]
+    return frame.dropna()
+
+
+def frame_for_timeframe(frame: pd.DataFrame, sample_minutes: int, target_decision_time: pd.Timestamp | None) -> pd.DataFrame:
+    if target_decision_time is not None and target_decision_time in frame.index:
+        return frame.loc[[target_decision_time]]
+    aligned = frame.loc[base.aligned_decision_time_mask(frame.index, sample_minutes)]
+    return aligned.iloc[[-1]] if not aligned.empty else aligned
 
 
 def latest_dataset_start(
@@ -302,17 +360,29 @@ def generate_signals(
     dataset_start = getattr(args, "dataset_start", None)
     if dataset_start is None:
         dataset_start = latest_dataset_start(args.data_root, symbols, args.lookback_days)
+    frame_cache: dict[str, pd.DataFrame] = {}
 
     for timeframe, model_dir in sorted(selected_model_dirs.items(), key=lambda item: timeframe_minutes(item[0])):
         minutes = timeframe_minutes(timeframe)
         bundle = load_model_bundle(model_dir, symbols)
         model_feature_set = bundle["metadata"].get("feature_set", args.feature_set)
-        frame = build_live_feature_frame(args.data_root, symbols, minutes, dataset_start, model_feature_set)
-        if frame.empty:
-            raise RuntimeError(f"No live feature rows generated for {timeframe}.")
-        row = frame.iloc[[-1]]
-        decision_time = pd.Timestamp(row.index[-1])
+        frame = frame_cache.get(model_feature_set)
+        if frame is None:
+            max_minutes = max(timeframe_minutes(item) for item in selected_model_dirs)
+            frame = build_live_feature_frame(
+                args.data_root,
+                symbols,
+                max_minutes,
+                dataset_start,
+                model_feature_set,
+                getattr(args, "live_rows_by_path", None),
+            )
+            frame_cache[model_feature_set] = frame
         target_decision_time = None if target_decision_times is None else target_decision_times.get(timeframe)
+        row = frame_for_timeframe(frame, minutes, target_decision_time)
+        if row.empty:
+            raise RuntimeError(f"No live feature rows generated for {timeframe}.")
+        decision_time = pd.Timestamp(row.index[-1])
         target_ready = target_decision_time is None or decision_time == target_decision_time
 
         for symbol in symbols:

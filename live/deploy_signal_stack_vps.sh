@@ -24,7 +24,7 @@ LIVE_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$LIVE_DIR/.." && pwd)"
 
 echo "sync signal stack to $VPS:$REMOTE_DIR"
-$SSH_CMD "$VPS" "mkdir -p '$REMOTE_DIR/live/models_3m' '$REMOTE_DIR/live/models_5m' '$REMOTE_DIR/live/models_15m' '$REMOTE_DIR/aligned_data_oos'"
+$SSH_CMD "$VPS" "mkdir -p '$REMOTE_DIR/live/turboflow' '$REMOTE_DIR/live/models_3m' '$REMOTE_DIR/live/models_5m' '$REMOTE_DIR/live/models_15m' '$REMOTE_DIR/aligned_data_oos'"
 
 RSYNC_SSH_ARGS=()
 if [ -n "$RSYNC_RSH" ]; then
@@ -36,8 +36,15 @@ rsync -az "${RSYNC_SSH_ARGS[@]}" \
   "$LIVE_DIR/update_live_klines.py" \
   "$LIVE_DIR/write_lightgbm_signals.py" \
   "$LIVE_DIR/lightgbm_5m_direction_btc_eth.py" \
-  "$LIVE_DIR/run_signal_stack.py" \
+  "$LIVE_DIR/control_panel.py" \
   "$VPS:$REMOTE_DIR/live/"
+
+rsync -az "${RSYNC_SSH_ARGS[@]}" --delete \
+  --exclude='__pycache__/' \
+  --exclude='runtime/' \
+  --exclude='signals.json' \
+  --exclude='*.pyc' \
+  "$LIVE_DIR/turboflow/" "$VPS:$REMOTE_DIR/live/turboflow/"
 
 for timeframe in 3m 5m 15m; do
   rsync -az "${RSYNC_SSH_ARGS[@]}" --delete \
@@ -60,5 +67,8 @@ cat <<EOF
 deployed to $VPS:$REMOTE_DIR
 
 signal process:
-  cd $REMOTE_DIR && .venv/bin/python live/run_signal_stack.py --signal-file live/signals.json
+  cd $REMOTE_DIR && .venv/bin/python live/turboflow/run_turboflow_signal_stack.py
+
+live trader:
+  cd $REMOTE_DIR && .venv/bin/python live/turboflow/run_turboflow_api_trader.py --live --timeframes 3m,5m,15m
 EOF

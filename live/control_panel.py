@@ -14,84 +14,105 @@ from urllib.parse import urlparse
 
 
 ROOT = Path(__file__).resolve().parent
-DEFAULT_CONTROL_FILE = ROOT / "runtime" / "hibt_control.json"
-DEFAULT_LOG_FILE = ROOT / "runtime" / "hibt_api_orders.jsonl"
-DEFAULT_DATA_ROOT = ROOT.parents[1] / "aligned_data_oos"
+DEFAULT_DATA_ROOT = ROOT.parent / "aligned_data_oos"
 HIBT_PAYOUT_RATE = 0.80
+DEFAULT_BANKROLL = 200.0
+MIN_BANKROLL = 2.0
+KELLY_FRACTIONS = [
+    ("BTC", "3m", 0.02207),
+    ("ETH", "3m", 0.01297),
+    ("BTC", "5m", 0.01218),
+    ("ETH", "5m", 0.01264),
+    ("BTC", "15m", 0.02069),
+    ("ETH", "15m", 0.01839),
+]
+
+
+def venue_paths(venue: str) -> dict[str, Path | str]:
+    if venue == "turboflow":
+        return {
+            "name": "TurboFlow",
+            "control_file": ROOT / "turboflow" / "runtime" / "turboflow_control.json",
+            "log_file": ROOT / "turboflow" / "runtime" / "turboflow_api_orders.jsonl",
+        }
+    if venue == "hibt":
+        return {
+            "name": "HiBT",
+            "control_file": ROOT / "hibt" / "runtime" / "hibt_control.json",
+            "log_file": ROOT / "hibt" / "runtime" / "hibt_api_orders.jsonl",
+        }
+    raise ValueError(f"unknown venue: {venue}")
 
 INDEX_HTML = r"""<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>HiBT Execution</title>
+  <title>Execution Panel</title>
   <style>
     :root {
-      color-scheme: light;
-      --bg: #f6f1e8;
-      --panel: #fffaf2;
-      --panel2: #f0e7da;
-      --line: #ddd1c0;
-      --text: #2b251f;
-      --muted: #7a7065;
-      --accent: #745239;
-      --accent2: #4f6a50;
-      --bad: #9f3a2f;
-      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color-scheme: dark;
+      --bg: #0f1014;
+      --panel: #17191f;
+      --panel2: #1d2028;
+      --line: #2b303a;
+      --text: #f4f7fb;
+      --muted: #8f98a8;
+      --accent: #00d4ff;
+      --accent2: #66f0c8;
+      --bad: #ff6b6b;
+      --warn: #ffc266;
+      font-family: IBS-R, "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; background: linear-gradient(135deg, #fbf6ed 0%, var(--bg) 52%, #eee4d7 100%); color: var(--text); }
-    .shell { min-height: 100vh; display: grid; grid-template-columns: 248px minmax(0, 1fr); }
-    aside { border-right: 1px solid var(--line); padding: 20px; background: rgba(255,250,242,.72); backdrop-filter: blur(12px); }
-    main { padding: 20px 22px 18px; display: grid; gap: 12px; align-content: start; }
-    h1 { margin: 0; font-size: 19px; font-weight: 650; letter-spacing: 0; }
-    h2 { margin: 0 0 12px; font-size: 13px; font-weight: 650; color: var(--muted); }
-    .brand { display: grid; gap: 4px; margin-bottom: 24px; }
+    body { margin: 0; background: var(--bg); color: var(--text); }
+    .shell { min-height: 100vh; display: grid; grid-template-columns: 260px minmax(0, 1fr); }
+    aside { border-right: 1px solid var(--line); background: #111319; padding: 18px; }
+    main { padding: 18px; display: grid; gap: 12px; align-content: start; }
+    h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0; }
+    h2 { margin: 0 0 12px; color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; }
     .muted { color: var(--muted); font-size: 12px; }
-    .panel { background: rgba(255,250,242,.9); border: 1px solid var(--line); border-radius: 9px; padding: 14px; box-shadow: 0 14px 36px rgba(73,53,35,.06); }
-    .controls { display: grid; gap: 14px; }
-    label.field { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
-    input[type="number"] { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 10px 11px; background: #fffdf7; color: var(--text); font: inherit; outline: none; }
-    input[type="number"]:focus { border-color: #b29a7e; box-shadow: 0 0 0 3px rgba(178,154,126,.18); }
-    .toggle { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; font-size: 14px; }
+    .brand { display: grid; gap: 4px; margin-bottom: 18px; }
+    .panel { min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+    .controls { display: grid; gap: 12px; }
+    label.field { display: grid; gap: 7px; color: var(--muted); font-size: 12px; }
+    input[type="number"] { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 10px 11px; background: #0d0f14; color: var(--text); font: inherit; outline: none; }
+    input[type="number"]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,212,255,.14); }
+    .toggle { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 2px 0; font-size: 14px; }
     .switch { position: relative; width: 42px; height: 24px; flex: 0 0 auto; }
     .switch input { opacity: 0; width: 0; height: 0; }
-    .slider { position: absolute; inset: 0; cursor: pointer; border-radius: 999px; background: #d8cbbb; transition: .18s ease; }
-    .slider:before { content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; border-radius: 999px; background: #fffaf1; box-shadow: 0 1px 3px rgba(0,0,0,.18); transition: .18s ease; }
+    .slider { position: absolute; inset: 0; cursor: pointer; border-radius: 8px; background: #2d3340; transition: .16s ease; }
+    .slider:before { content: ""; position: absolute; width: 18px; height: 18px; left: 3px; top: 3px; border-radius: 6px; background: #d7dde8; transition: .16s ease; }
     .switch input:checked + .slider { background: var(--accent); }
-    .switch input:checked + .slider:before { transform: translateX(18px); }
-    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
-    button { border: 1px solid transparent; border-radius: 8px; padding: 10px 12px; font: inherit; cursor: pointer; transition: .16s ease; }
-    button.primary { background: var(--text); color: #fffaf1; }
-    button.secondary { background: transparent; border-color: var(--line); color: var(--text); }
-    button:hover { transform: translateY(-1px); }
+    .switch input:checked + .slider:before { transform: translateX(18px); background: #061017; }
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+    button { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: #10131a; color: var(--text); font: inherit; cursor: pointer; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #061017; font-weight: 700; }
+    button:hover { border-color: var(--accent); }
     .topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-    .status { display: inline-flex; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 999px; background: rgba(255,250,241,.7); color: var(--muted); font-size: 12px; }
+    .status { display: inline-flex; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: #111319; color: var(--muted); font-size: 12px; }
     .dot { width: 7px; height: 7px; border-radius: 999px; background: var(--accent2); }
-    .stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
-    .stat { min-height: 88px; display: grid; align-content: space-between; background: linear-gradient(180deg, #fffaf2, #f5ecdf); }
-    .stat b { display: block; margin-top: 8px; font-size: 28px; font-weight: 650; letter-spacing: 0; }
-    .content-grid { display: grid; grid-template-columns: minmax(340px, .76fr) minmax(0, 1.24fr); gap: 12px; align-items: stretch; }
-    .content-grid > *, .stack, .panel { min-width: 0; }
-    .stack { display: grid; grid-template-rows: 1fr auto; gap: 12px; }
-    .fill { height: 100%; }
-    .chart-panel { display: grid; grid-template-rows: auto minmax(260px, 1fr); }
-    .chart { height: 100%; min-height: 260px; }
-    .table-scroll { max-height: calc(100vh - 230px); min-height: 420px; overflow: auto; }
+    .stats { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; }
+    .stat { min-height: 82px; display: grid; align-content: space-between; background: var(--panel2); }
+    .stat b { display: block; margin-top: 8px; font-size: 26px; font-weight: 700; letter-spacing: 0; }
+    .content-grid { display: grid; grid-template-columns: minmax(360px, .72fr) minmax(0, 1.28fr); gap: 12px; align-items: stretch; }
+    .stack { min-width: 0; display: grid; grid-template-rows: minmax(300px, 1fr) auto; gap: 12px; }
+    .chart-panel { display: grid; grid-template-rows: auto minmax(270px, 1fr); }
+    .chart { height: 100%; min-height: 270px; }
+    .table-scroll { max-height: calc(100vh - 232px); min-height: 432px; overflow: auto; }
     canvas { width: 100%; height: 100%; display: block; }
     table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
-    th, td { height: 38px; padding: 8px 8px; border-bottom: 1px solid rgba(222,212,196,.72); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    th { position: sticky; top: 0; z-index: 1; background: #fffaf2; color: var(--muted); font-size: 12px; font-weight: 650; }
+    th, td { height: 38px; padding: 8px 8px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    th { position: sticky; top: 0; z-index: 1; background: var(--panel); color: var(--muted); font-size: 12px; font-weight: 700; }
     .num { text-align: right; font-variant-numeric: tabular-nums; }
-    tbody tr:hover { background: rgba(111,78,55,.06); }
-    .pill { display: inline-flex; align-items: center; justify-content: center; min-width: 34px; border: 1px solid var(--line); border-radius: 999px; padding: 4px 8px; background: rgba(255,250,242,.7); }
-    .tag { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 7px; background: #f3eadc; color: var(--text); }
-    .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+    tbody tr:hover { background: rgba(0,212,255,.06); }
+    .pill, .tag { display: inline-flex; align-items: center; justify-content: center; min-width: 38px; border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; background: #10131a; }
+    .tag.up { border-color: rgba(102,240,200,.42); color: var(--accent2); }
+    .tag.down { border-color: rgba(255,107,107,.42); color: var(--bad); }
     .ok { color: var(--accent2); }
     .bad { color: var(--bad); }
-    .warn { color: #9b6a24; }
-    .files { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    @media (max-width: 920px) {
+    .warn { color: var(--warn); }
+    @media (max-width: 980px) {
       .shell { grid-template-columns: 1fr; }
       aside { border-right: 0; border-bottom: 1px solid var(--line); }
       .stats, .content-grid { grid-template-columns: 1fr; }
@@ -102,35 +123,20 @@ INDEX_HTML = r"""<!doctype html>
   <div class="shell">
     <aside>
       <div class="brand">
-        <h1>HiBT Execution</h1>
-        <span class="muted">local control panel</span>
+        <h1 id="venue_title">Execution</h1>
+        <span class="muted">execution panel</span>
       </div>
-      <div class="controls">
-        <section class="panel">
-          <h2>Execution</h2>
-          <label class="toggle">HiBT <span class="switch"><input id="enabled" type="checkbox"><span class="slider"></span></span></label>
-        </section>
-        <section class="panel">
-          <h2>Order</h2>
-          <label class="field">下单金额<input id="order_amount" type="number" min="0.01" step="0.01"></label>
-          <div class="actions">
-            <button class="secondary" id="refresh">刷新</button>
-            <button class="primary" id="save">保存</button>
-          </div>
-        </section>
-      </div>
+      <div class="controls" id="controls"></div>
     </aside>
     <main>
       <div class="topbar">
         <div>
           <h1>Live Execution</h1>
-          <div class="muted">金额和开关写入 hibt_control.json，HiBT trader 下一次信号处理生效。</div>
+          <div class="muted" id="venue_note"></div>
         </div>
         <div class="status"><span class="dot"></span><span id="status">loading</span></div>
       </div>
-
       <section class="stats" id="stats"></section>
-
       <section class="content-grid">
         <div class="stack">
           <section class="panel chart-panel">
@@ -139,14 +145,14 @@ INDEX_HTML = r"""<!doctype html>
           </section>
           <section class="panel">
             <h2>Timeframes</h2>
-            <table class="timeframes">
-              <colgroup><col style="width:13%"><col style="width:12%"><col style="width:25%"><col style="width:16%"><col style="width:16%"><col style="width:18%"></colgroup>
-              <thead><tr><th>周期</th><th class="num">次数</th><th class="num">胜率</th><th class="num">信号</th><th class="num">执行</th><th class="num">盈亏</th></tr></thead>
+            <table>
+              <colgroup><col style="width:12%"><col style="width:10%"><col style="width:20%"><col style="width:14%"><col style="width:14%"><col style="width:14%"><col style="width:16%"></colgroup>
+              <thead><tr><th>周期</th><th class="num">次数</th><th class="num">胜率</th><th class="num">回报</th><th class="num">信号</th><th class="num">执行</th><th class="num">盈亏</th></tr></thead>
               <tbody id="timeframes"></tbody>
             </table>
           </section>
         </div>
-        <div class="panel fill">
+        <section class="panel">
           <h2>Recent Orders</h2>
           <div class="table-scroll">
             <table>
@@ -155,21 +161,19 @@ INDEX_HTML = r"""<!doctype html>
               <tbody id="recent"></tbody>
             </table>
           </div>
-        </div>
+        </section>
       </section>
     </main>
   </div>
   <script>
     const $ = (id) => document.getElementById(id);
+    let kellyFractions = [];
+    let currentVenue = "turboflow";
     let dirty = false;
     let loadedOnce = false;
 
-    function pct(value) {
-      return value === null || value === undefined ? "N/A" : `${(Number(value) * 100).toFixed(1)}%`;
-    }
-    function money(value) {
-      return value === null || value === undefined ? "N/A" : Number(value).toFixed(2);
-    }
+    function pct(value) { return value === null || value === undefined ? "N/A" : `${(Number(value) * 100).toFixed(1)}%`; }
+    function money(value) { return value === null || value === undefined ? "N/A" : Number(value).toFixed(2); }
     function secs(value) {
       if (value === null || value === undefined) return "N/A";
       const number = Number(value);
@@ -177,18 +181,10 @@ INDEX_HTML = r"""<!doctype html>
       if (number >= 60) return `${(number / 60).toFixed(1)}m`;
       return `${number.toFixed(1)}s`;
     }
-    function cellClass(value) {
-      if (value === true || value === "win") return "ok";
-      if (value === false || value === "loss") return "bad";
-      return "warn";
-    }
-    function pnlClass(value) {
-      if (value === null || value === undefined) return "warn";
-      return Number(value) >= 0 ? "ok" : "bad";
-    }
-    function marketText(row) {
-      return `${(row.symbol || "").replace("-USDT", "").replace("USDT", "")} ${row.timeframe || ""}`.trim();
-    }
+    function pnlClass(value) { return value === null || value === undefined ? "warn" : Number(value) >= 0 ? "ok" : "bad"; }
+    function cellClass(value) { return value === true || value === "win" ? "ok" : value === false || value === "loss" ? "bad" : "warn"; }
+    function marketText(row) { return `${(row.symbol || "").replace("-USDT", "").replace("USDT", "")} ${row.timeframe || ""}`.trim(); }
+    function sideText(value) { return String(value || "").toUpperCase() === "SELL" ? "DOWN" : "UP"; }
     function shortTime(value) {
       const text = value || "";
       const match = text.match(/T(\d{2}:\d{2})/);
@@ -199,44 +195,84 @@ INDEX_HTML = r"""<!doctype html>
       const pad = (number) => String(number).padStart(2, "0");
       return `${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}`;
     }
-    function sideText(value) {
-      const text = String(value || "").toUpperCase();
-      if (text === "BUY") return "UP";
-      if (text === "SELL") return "DOWN";
-      return text;
+    function winText(row) { return row.settled ? `${pct(row.win_rate)} (${row.wins}/${row.settled})` : "N/A"; }
+    function kellyAmount(bankroll, fraction) { return Math.max(2, Number(bankroll || 200) * fraction); }
+    function renderControls(control) {
+      const isTurbo = currentVenue === "turboflow";
+      $("controls").innerHTML = `
+        <section class="panel">
+          <h2>Execution</h2>
+          <label class="toggle">${isTurbo ? "TurboFlow" : "HiBT"} <span class="switch"><input id="enabled" type="checkbox"><span class="slider"></span></span></label>
+        </section>
+        <section class="panel">
+          <h2>${isTurbo ? "Dry-run / Fallback" : "Order"}</h2>
+          ${isTurbo
+            ? `<label class="field">Dry-run / fallback bankroll<input id="bankroll" type="number" min="2" step="0.01"></label>`
+            : `<label class="field">下单金额<input id="order_amount" type="number" min="0.01" step="0.01"></label>`}
+          <div class="actions">
+            <button id="refresh">刷新</button>
+            <button class="primary" id="save">保存</button>
+          </div>
+        </section>
+        ${isTurbo ? `<section class="panel">
+          <h2>Kelly Amount</h2>
+          <table>
+            <colgroup><col style="width:32%"><col style="width:28%"><col style="width:40%"></colgroup>
+            <thead><tr><th>币种</th><th>周期</th><th class="num">金额</th></tr></thead>
+            <tbody id="kelly"></tbody>
+          </table>
+        </section>` : ""}
+      `;
+      $("refresh").addEventListener("click", load);
+      $("save").addEventListener("click", () => save().catch((err) => $("status").textContent = err.message));
+      document.querySelectorAll("#controls input").forEach((input) => {
+        input.addEventListener("input", () => {
+          if (loadedOnce) dirty = true;
+          if (currentVenue === "turboflow") renderKelly($("bankroll").value);
+          $("status").textContent = "未保存";
+        });
+      });
+      $("enabled").checked = Boolean(control.enabled);
+      if (isTurbo) {
+        $("bankroll").value = control.bankroll;
+        renderKelly(control.bankroll);
+      } else {
+        $("order_amount").value = control.order_amount;
+      }
     }
-    function winText(row) {
-      return row.settled ? `${pct(row.win_rate)} (${row.wins}/${row.settled})` : "N/A";
+    function renderKelly(bankroll) {
+      const table = $("kelly");
+      if (!table) return;
+      table.innerHTML = kellyFractions.map(([symbol, timeframe, fraction]) => `
+        <tr><td>${symbol}</td><td><span class="pill">${timeframe}</span></td><td class="num">${money(kellyAmount(bankroll, fraction))}</td></tr>
+      `).join("");
     }
     function setForm(control) {
       if (dirty) return;
-      $("enabled").checked = Boolean(control.enabled);
-      $("order_amount").value = control.order_amount;
+      renderControls(control);
     }
     function collectForm() {
-      return {
-        enabled: $("enabled").checked,
-        order_amount: Number($("order_amount").value),
-      };
+      if (currentVenue === "turboflow") return { enabled: $("enabled").checked, bankroll: Number($("bankroll").value) };
+      return { enabled: $("enabled").checked, order_amount: Number($("order_amount").value) };
     }
     function renderStats(stats) {
       const wins = stats.wins ?? 0;
       const winLabel = stats.settled ? `胜率 · ${wins}/${stats.settled}` : "胜率";
       $("stats").innerHTML = [
         ["执行次数", stats.count],
-        ["提交成功率", pct(stats.success_rate)],
+        ["成功率", pct(stats.success_rate)],
+        ["平均回报", pct(stats.avg_payout_rate)],
         ["总耗时", secs(stats.avg_order_delay_seconds)],
         ["信号延迟", secs(stats.avg_signal_delay_seconds)],
-        ["执行延迟", secs(stats.avg_trader_delay_seconds)],
         [winLabel, pct(stats.win_rate)],
         ["总盈亏", money(stats.pnl)],
       ].map(([label, value]) => `<div class="panel stat"><span class="muted">${label}</span><b>${value}</b></div>`).join("");
-
       $("timeframes").innerHTML = Object.entries(stats.timeframes).map(([name, row]) => `
         <tr>
           <td><span class="pill">${name}</span></td>
           <td class="num">${row.count}</td>
           <td class="num">${winText(row)}</td>
+          <td class="num">${pct(row.avg_payout_rate)}</td>
           <td class="num">${secs(row.avg_signal_delay_seconds)}</td>
           <td class="num">${secs(row.avg_trader_delay_seconds)}</td>
           <td class="num ${pnlClass(row.pnl)}">${money(row.pnl)}</td>
@@ -252,16 +288,12 @@ INDEX_HTML = r"""<!doctype html>
       const ctx = canvas.getContext("2d");
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, rect.width, rect.height);
-      ctx.textAlign = "left";
-      const padLeft = 52;
-      const padRight = 18;
-      const padTop = 30;
-      const padBottom = 38;
+      const padLeft = 52, padRight = 18, padTop = 28, padBottom = 38;
       const width = rect.width - padLeft - padRight;
       const height = rect.height - padTop - padBottom;
-      const axisColor = "rgba(123,113,101,.55)";
-      const gridColor = "rgba(123,113,101,.20)";
-      const labelColor = "#7b7165";
+      const axisColor = "rgba(143,152,168,.65)";
+      const gridColor = "rgba(143,152,168,.18)";
+      const labelColor = "#8f98a8";
       const drawAxes = () => {
         ctx.strokeStyle = axisColor;
         ctx.lineWidth = 1;
@@ -272,19 +304,11 @@ INDEX_HTML = r"""<!doctype html>
         ctx.stroke();
       };
       if (!points || points.length === 0) {
-        const mid = padTop + height / 2;
         drawAxes();
-        ctx.strokeStyle = gridColor;
-        ctx.beginPath();
-        ctx.moveTo(padLeft, mid);
-        ctx.lineTo(padLeft + width, mid);
-        ctx.stroke();
         ctx.fillStyle = labelColor;
         ctx.font = "12px system-ui";
-        ctx.textAlign = "right";
-        ctx.fillText("0.00", padLeft - 8, mid + 4);
         ctx.textAlign = "center";
-        ctx.fillText("暂无已结算盈亏", padLeft + width / 2, mid - 10);
+        ctx.fillText("暂无已结算盈亏", padLeft + width / 2, padTop + height / 2);
         return;
       }
       const times = points.map((point) => Date.parse(point.logged_at));
@@ -301,11 +325,10 @@ INDEX_HTML = r"""<!doctype html>
       const min = Math.floor(minValue / step) * step;
       const max = Math.ceil(maxValue / step) * step;
       const xFor = (point) => padLeft + ((Date.parse(point.logged_at) - firstTime) / span) * width;
-      const yFor = (value) => padTop + height - ((value - min) / (max - min)) * height;
+      const yFor = (value) => padTop + height - ((value - min) / Math.max(step, max - min)) * height;
       ctx.strokeStyle = gridColor;
       ctx.fillStyle = labelColor;
       ctx.font = "12px system-ui";
-      ctx.lineWidth = 1;
       ctx.textAlign = "right";
       for (let value = min; value <= max + step / 2; value += step) {
         const y = yFor(value);
@@ -316,15 +339,14 @@ INDEX_HTML = r"""<!doctype html>
         ctx.fillText(money(value), padLeft - 8, y + 4);
       }
       drawAxes();
-      const midTime = firstTime + span / 2;
       ctx.fillStyle = labelColor;
       ctx.textAlign = "left";
       ctx.fillText(timeLabel(firstTime), padLeft, padTop + height + 24);
       ctx.textAlign = "center";
-      ctx.fillText(timeLabel(midTime), padLeft + width / 2, padTop + height + 24);
+      ctx.fillText(timeLabel(firstTime + span / 2), padLeft + width / 2, padTop + height + 24);
       ctx.textAlign = "right";
       ctx.fillText(timeLabel(lastTime), padLeft + width, padTop + height + 24);
-      ctx.strokeStyle = "#6f4e37";
+      ctx.strokeStyle = "#00d4ff";
       ctx.lineWidth = 2;
       ctx.beginPath();
       points.forEach((point, index) => {
@@ -336,23 +358,32 @@ INDEX_HTML = r"""<!doctype html>
       ctx.stroke();
     }
     function renderRecent(rows) {
-      $("recent").innerHTML = rows.map((row) => `
-        <tr>
-          <td title="${row.logged_at || ""}">${shortTime(row.logged_at)}</td>
-          <td>${marketText(row)}</td>
-          <td><span class="tag">${sideText(row.side)}</span></td>
-          <td class="num">${money(row.amount)}</td>
-          <td class="num">${secs(row.order_delay_seconds)}</td>
-          <td class="num">${secs(row.signal_delay_seconds)}</td>
-          <td class="num">${secs(row.trader_delay_seconds)}</td>
-          <td class="${cellClass(row.outcome)}">${row.outcome || "pending"}</td>
-          <td class="num ${pnlClass(row.pnl)}">${money(row.pnl)}</td>
-        </tr>
-      `).join("");
+      $("recent").innerHTML = rows.map((row) => {
+        const side = sideText(row.side);
+        return `
+          <tr>
+            <td title="${row.logged_at || ""}">${shortTime(row.logged_at)}</td>
+            <td>${marketText(row)}</td>
+            <td><span class="tag ${side === "UP" ? "up" : "down"}">${side}</span></td>
+            <td class="num">${money(row.amount)}</td>
+            <td class="num">${secs(row.order_delay_seconds)}</td>
+            <td class="num">${secs(row.signal_delay_seconds)}</td>
+            <td class="num">${secs(row.trader_delay_seconds)}</td>
+            <td class="${cellClass(row.outcome)}">${row.outcome || "pending"}</td>
+            <td class="num ${pnlClass(row.pnl)}">${money(row.pnl)}</td>
+          </tr>
+        `;
+      }).join("");
     }
     async function load() {
       const res = await fetch("/api/state");
       const data = await res.json();
+      currentVenue = data.venue;
+      kellyFractions = data.kelly_fractions || [];
+      $("venue_title").textContent = data.venue_name || "Execution";
+      $("venue_note").textContent = currentVenue === "turboflow"
+        ? "Live uses TurboFlow USDT available balance; this number is only for dry-run or balance API fallback."
+        : "金额和开关写入控制文件，trader 下一次信号处理生效。";
       setForm(data.control);
       renderStats(data.stats);
       renderCurve(data.stats.equity_curve);
@@ -371,14 +402,6 @@ INDEX_HTML = r"""<!doctype html>
       dirty = false;
       await load();
     }
-    document.querySelectorAll("input").forEach((input) => {
-      input.addEventListener("input", () => {
-        if (loadedOnce) dirty = true;
-        $("status").textContent = "未保存";
-      });
-    });
-    $("refresh").addEventListener("click", load);
-    $("save").addEventListener("click", () => save().catch((err) => $("status").textContent = err.message));
     load();
     setInterval(load, 5000);
   </script>
@@ -387,37 +410,45 @@ INDEX_HTML = r"""<!doctype html>
 """
 
 
-def default_control() -> dict[str, Any]:
+def default_control(venue: str) -> dict[str, Any]:
+    if venue == "turboflow":
+        return {"enabled": True, "bankroll": DEFAULT_BANKROLL}
     return {"enabled": True, "order_amount": 3.0}
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Local web control panel for HiBT execution.")
+    parser = argparse.ArgumentParser(description="Local web control panel for live execution.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--control-file", type=Path, default=DEFAULT_CONTROL_FILE)
-    parser.add_argument("--log-file", type=Path, default=DEFAULT_LOG_FILE)
+    parser.add_argument("--venue", choices=("turboflow", "hibt"), default="turboflow")
+    parser.add_argument("--control-file", type=Path, default=None)
+    parser.add_argument("--log-file", type=Path, default=None)
     parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
     parser.add_argument("--tail", type=int, default=0, help="Rows to read from the order log. 0 reads full history.")
     parser.add_argument("--self-test", action="store_true")
     return parser.parse_args()
 
 
-def read_control(path: Path) -> dict[str, Any]:
+def read_control(path: Path, venue: str) -> dict[str, Any]:
     if not path.exists():
-        return default_control()
+        return default_control(venue)
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
-        return default_control()
-    return sanitize_control(data if isinstance(data, dict) else {})
+        return default_control(venue)
+    return sanitize_control(data if isinstance(data, dict) else {}, venue)
 
 
-def sanitize_control(data: dict[str, Any]) -> dict[str, Any]:
-    control = default_control()
-    control["enabled"] = bool(data.get("enabled", control["enabled"]))
-    control["order_amount"] = positive_float(data.get("order_amount"), float(control["order_amount"]))
-    return control
+def sanitize_control(data: dict[str, Any], venue: str) -> dict[str, Any]:
+    if venue == "turboflow":
+        return {
+            "enabled": bool(data.get("enabled", True)),
+            "bankroll": max(MIN_BANKROLL, positive_float(data.get("bankroll"), DEFAULT_BANKROLL)),
+        }
+    return {
+        "enabled": bool(data.get("enabled", True)),
+        "order_amount": positive_float(data.get("order_amount"), 3.0),
+    }
 
 
 def positive_float(value: Any, default: float) -> float:
@@ -453,11 +484,14 @@ def read_jsonl_tail(path: Path, limit: int) -> list[dict[str, Any]]:
     return list(rows)
 
 
-def build_state(control_file: Path, log_file: Path, data_root: Path, tail: int) -> dict[str, Any]:
+def build_state(control_file: Path, log_file: Path, data_root: Path, tail: int, venue: str, venue_name: str) -> dict[str, Any]:
     records = read_jsonl_tail(log_file, tail)
     closes = read_closes_for(records, data_root)
     return {
-        "control": read_control(control_file),
+        "venue": venue,
+        "venue_name": venue_name,
+        "kelly_fractions": KELLY_FRACTIONS if venue == "turboflow" else [],
+        "control": read_control(control_file, venue),
         "stats": stats(records, closes),
         "recent": recent(records, closes),
         "files": {
@@ -491,6 +525,7 @@ def summarize(items: list[tuple[dict[str, Any], dict[str, Any] | None]], total: 
         and (trader_delay := trader_delay_seconds(row)) is not None
     ]
     outcomes = [outcome for row, outcome in items if row.get("success") and outcome is not None]
+    payout_rates = [payout_rate_for(row) for row, _outcome in items if row.get("success")]
     wins = sum(1 for outcome in outcomes if outcome["win"])
     pnl = sum(pnl_for(row, outcome) for row, outcome in items if row.get("success") and outcome is not None)
     return {
@@ -501,6 +536,7 @@ def summarize(items: list[tuple[dict[str, Any], dict[str, Any] | None]], total: 
         "avg_order_delay_seconds": None if not latency_rows else sum(row[0] for row in latency_rows) / len(latency_rows),
         "avg_signal_delay_seconds": None if not latency_rows else sum(row[1] for row in latency_rows) / len(latency_rows),
         "avg_trader_delay_seconds": None if not latency_rows else sum(row[2] for row in latency_rows) / len(latency_rows),
+        "avg_payout_rate": None if not payout_rates else sum(payout_rates) / len(payout_rates),
         "settled": len(outcomes),
         "wins": wins,
         "win_rate": None if not outcomes else wins / len(outcomes),
@@ -583,8 +619,11 @@ def trader_delay_seconds(row: dict[str, Any]) -> float | None:
 def pnl_for(row: dict[str, Any], outcome: dict[str, Any]) -> float:
     order = row.get("order") if isinstance(row.get("order"), dict) else {}
     amount = parse_amount(order.get("amount")) or 0.0
-    payout_rate = float(row.get("payout_rate", HIBT_PAYOUT_RATE))
-    return amount * payout_rate if outcome["win"] else -amount
+    return amount * payout_rate_for(row) if outcome["win"] else -amount
+
+
+def payout_rate_for(row: dict[str, Any]) -> float:
+    return parse_amount(row.get("payout_rate")) or HIBT_PAYOUT_RATE
 
 
 def parse_amount(value: Any) -> float | None:
@@ -680,7 +719,7 @@ def normalize_symbol(value: Any) -> str:
     return text
 
 
-def make_handler(control_file: Path, log_file: Path, data_root: Path, tail: int) -> type[BaseHTTPRequestHandler]:
+def make_handler(control_file: Path, log_file: Path, data_root: Path, tail: int, venue: str, venue_name: str) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         def do_HEAD(self) -> None:
             if urlparse(self.path).path == "/":
@@ -696,7 +735,7 @@ def make_handler(control_file: Path, log_file: Path, data_root: Path, tail: int)
                 self.send_html(INDEX_HTML)
                 return
             if path == "/api/state":
-                self.send_json(build_state(control_file, log_file, data_root, tail))
+                self.send_json(build_state(control_file, log_file, data_root, tail, venue, venue_name))
                 return
             self.send_error(404)
 
@@ -716,7 +755,7 @@ def make_handler(control_file: Path, log_file: Path, data_root: Path, tail: int)
             if not isinstance(payload, dict):
                 self.send_error(400, "json object required")
                 return
-            control = sanitize_control(payload)
+            control = sanitize_control(payload, venue)
             write_json(control_file, control)
             self.send_json({"ok": True, "control": control})
 
@@ -771,15 +810,17 @@ def self_test() -> None:
             "success": True,
         }
         log.write_text(json.dumps({**row, "success": False}) + "\n" + json.dumps(row) + "\n", encoding="utf-8")
-        state = build_state(root / "control.json", log, data_root, 100)
-        full_state = build_state(root / "control.json", log, data_root, 0)
+        state = build_state(root / "control.json", log, data_root, 100, "hibt", "HiBT")
+        full_state = build_state(root / "control.json", log, data_root, 0, "hibt", "HiBT")
         assert state["stats"]["count"] == 2
         assert full_state["stats"]["count"] == 2
-        assert build_state(root / "control.json", log, data_root, 1)["stats"]["count"] == 1
+        assert build_state(root / "control.json", log, data_root, 1, "hibt", "HiBT")["stats"]["count"] == 1
         assert state["stats"]["win_rate"] == 1.0
         assert abs(state["stats"]["pnl"] - 2.4) < 1e-9
+        assert state["stats"]["avg_payout_rate"] == HIBT_PAYOUT_RATE
         assert abs(state["stats"]["equity_curve"][-1]["pnl"] - 2.4) < 1e-9
         assert state["stats"]["timeframes"]["5m"]["avg_order_delay_seconds"] == 2.0
+        assert build_state(root / "tf_control.json", log, data_root, 1, "turboflow", "TurboFlow")["control"]["bankroll"] == DEFAULT_BANKROLL
 
 
 def main() -> int:
@@ -787,7 +828,10 @@ def main() -> int:
     if args.self_test:
         self_test()
         return 0
-    handler = make_handler(args.control_file, args.log_file, args.data_root, args.tail)
+    paths = venue_paths(args.venue)
+    control_file = args.control_file or Path(paths["control_file"])
+    log_file = args.log_file or Path(paths["log_file"])
+    handler = make_handler(control_file, log_file, args.data_root, args.tail, args.venue, str(paths["name"]))
     server = ThreadingHTTPServer((args.host, args.port), handler)
     print(f"control panel http://{args.host}:{args.port}", flush=True)
     try:

@@ -10,6 +10,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -198,13 +199,13 @@ class OverlayStore:
         while len(rows) > self.keep_rows:
             del rows[min(rows)]
             changed = True
-        if changed:
-            write_rows(path, rows)
         if changed_rows and self.on_rows_updated is not None:
             try:
                 self.on_rows_updated(market, symbol, changed_rows)
             except Exception:
                 log.exception("signal callback failed for %s %s", market, symbol)
+        if changed:
+            write_rows(path, rows)
         return path
 
 
@@ -240,6 +241,7 @@ class SignalWriterCallback:
         for path in self.model_dirs.values():
             signal_writer.load_model_bundle(path, self.symbols)
         self.args.dataset_start = signal_writer.latest_dataset_start(data_root, self.symbols, lookback_days)
+        self.args.live_rows_by_path = self.store.rows_by_path
         warmup_ms = (time.perf_counter() - warmup_start) * 1000.0
         log.info(
             "signal callback ready timeframes=%s warmup_ms=%.3f signal_file=%s",
@@ -341,24 +343,29 @@ def rest_backfill(
         SPOT_MARKET: SPOT_REST,
         FUTURES_MARKET: FUTURES_REST,
     }
-    for market in markets:
-        endpoint = endpoints[market]
-        for symbol in symbols:
-            raw_rows = fetch_rest_klines(endpoint, symbol, start_ms, end_ms)
-            rows = [rest_kline_row(row) for row in raw_rows]
-            if not rows:
-                raise RuntimeError(f"{market} {symbol} REST backfill returned no rows")
-            path = store.update_many(market, symbol, rows)
-            logger = log.info if log_success else log.debug
-            logger(
-                "%s %s REST backfilled rows=%s first_open_time=%s last_open_time=%s path=%s",
-                market,
-                symbol,
-                len(rows),
-                rows[0]["open_time"],
-                rows[-1]["open_time"],
-                path,
-            )
+    items = [(market, symbol) for market in markets for symbol in symbols]
+
+    def fetch_item(item: tuple[str, str]) -> tuple[str, str, list[dict[str, str]]]:
+        market, symbol = item
+        rows = [rest_kline_row(row) for row in fetch_rest_klines(endpoints[market], symbol, start_ms, end_ms)]
+        if not rows:
+            raise RuntimeError(f"{market} {symbol} REST backfill returned no rows")
+        return market, symbol, rows
+
+    with ThreadPoolExecutor(max_workers=len(items)) as pool:
+        results = list(pool.map(fetch_item, items))
+    for market, symbol, rows in results:
+        path = store.update_many(market, symbol, rows)
+        logger = log.info if log_success else log.debug
+        logger(
+            "%s %s REST backfilled rows=%s first_open_time=%s last_open_time=%s path=%s",
+            market,
+            symbol,
+            len(rows),
+            rows[0]["open_time"],
+            rows[-1]["open_time"],
+            path,
+        )
 
 
 async def consume_market(store: OverlayStore, market: str, ws_base: str, symbols: tuple[str, ...]) -> None:
@@ -442,7 +449,7 @@ def main() -> int:
     parser.add_argument("--rest-backfill-only", action="store_true")
     parser.add_argument("--rest-catchup-minutes", type=int, default=15)
     parser.add_argument("--rest-catchup-seconds", type=float, default=10.0)
-    parser.add_argument("--rest-catchup-market", action="append", default=[FUTURES_MARKET], choices=(SPOT_MARKET, FUTURES_MARKET))
+    parser.add_argument("--rest-catchup-market", action="append", default=None, choices=(SPOT_MARKET, FUTURES_MARKET))
     parser.add_argument("--signal-file", type=Path, default=None)
     parser.add_argument("--signal-model-dir", action="append", default=[])
     parser.add_argument("--signal-feature-set", default="v1")
@@ -461,6 +468,8 @@ def main() -> int:
         raise ValueError("--rest-catchup-minutes must be <= --keep-rows")
     if args.rest_catchup_seconds < 0:
         raise ValueError("--rest-catchup-seconds must be >= 0")
+    if args.rest_catchup_market is None:
+        args.rest_catchup_market = [FUTURES_MARKET]
     configure_colored_logging(getattr(logging, args.log_level.upper()))
     asyncio.run(run(args))
     return 0

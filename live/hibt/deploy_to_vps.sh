@@ -44,6 +44,7 @@ rsync -az "${RSYNC_SSH_ARGS[@]}" \
   "$LIVE_DIR/update_live_klines.py" \
   "$LIVE_DIR/write_lightgbm_signals.py" \
   "$LIVE_DIR/lightgbm_5m_direction_btc_eth.py" \
+  "$LIVE_DIR/control_panel.py" \
   "$VPS:$REMOTE_DIR/live/"
 
 for timeframe in 3m 5m 15m; do
@@ -70,7 +71,7 @@ signal process:
   cd $REMOTE_DIR && .venv/bin/python live/hibt/run_hibt_signal_stack.py
 
 control panel:
-  cd $REMOTE_DIR && .venv/bin/python live/hibt/control_panel.py --host 127.0.0.1 --port 8765
+  cd $REMOTE_DIR && .venv/bin/python live/control_panel.py --venue hibt --host 127.0.0.1 --port 8765
 
 dry-run trader:
   cd $REMOTE_DIR && .venv/bin/python live/hibt/run_hibt_api_trader.py --timeframes 3m,5m,15m

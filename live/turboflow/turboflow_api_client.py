@@ -13,6 +13,7 @@ from typing import Any
 API_BASE = "https://apis.turboflow.xyz"
 CONFIG_PATH = "/public/pm/config?version=2"
 SUBMIT_PATH = "/account/pm/order/submit"
+ASSETS_PATH = "/account/assets/v2?fill_coin_sub_info=yes"
 TIMEFRAME_SECONDS = {"30s": 30, "1m": 60, "3m": 180, "5m": 300, "10m": 600, "15m": 900, "1h": 3600}
 PAIR_IDS = {"ETH-USDT": "5", "BTC-USDT": "6"}
 ORDER_WAY = {"BUY": 1, "SELL": 3}
@@ -69,24 +70,72 @@ def pair_id_for(symbol: str) -> str:
         raise ValueError(f"unsupported TurboFlow symbol: {symbol!r}") from exc
 
 
-def return_rate_for(*, symbol: str, timeframe: str, side: str, timeout_seconds: float = 8.0) -> str:
+def return_rate_map(timeout_seconds: float = 8.0) -> dict[tuple[str, str, str], str]:
     response = request_json("GET", CONFIG_PATH, timeout_seconds=timeout_seconds)
+    if response.get("http_status") != 200:
+        raise RuntimeError(f"TurboFlow config failed: {response}")
     body = response.get("body")
     rows = ((body.get("data") or {}).get("data") or []) if isinstance(body, dict) else []
-    pair_id = pair_id_for(symbol)
-    duration = timeframe_seconds(timeframe)
+    rates: dict[tuple[str, str, str], str] = {}
+    durations = {seconds: timeframe for timeframe, seconds in TIMEFRAME_SECONDS.items()}
     for row in rows:
-        if str(row.get("pair_id")) != pair_id:
-            continue
+        pair_id = str(row.get("pair_id"))
         for config in row.get("order_configs") or []:
-            if int(config.get("duration") or 0) != duration:
+            timeframe = durations.get(int(config.get("duration") or 0))
+            if timeframe is None:
                 continue
-            key = "bid_return_rate" if side == "BUY" else "ask_return_rate"
-            value = config.get(key)
-            if value in (None, ""):
-                raise RuntimeError(f"TurboFlow return rate missing: pair_id={pair_id} duration={duration} side={side}")
-            return str(value)
-    raise RuntimeError(f"TurboFlow config missing: pair_id={pair_id} duration={duration}")
+            for side, key in (("BUY", "bid_return_rate"), ("SELL", "ask_return_rate")):
+                value = config.get(key)
+                if value not in (None, ""):
+                    rates[(pair_id, timeframe, side)] = str(value)
+    if not rates:
+        raise RuntimeError(f"TurboFlow config had no return rates: {response}")
+    return rates
+
+
+def return_rate_from_map(rates: dict[tuple[str, str, str], str], *, symbol: str, timeframe: str, side: str) -> str:
+    pair_id = pair_id_for(symbol)
+    key = (pair_id, normalize_timeframe(timeframe), str(side or "").strip().upper())
+    try:
+        return rates[key]
+    except KeyError as exc:
+        raise RuntimeError(f"TurboFlow return rate missing: pair_id={pair_id} timeframe={key[1]} side={key[2]}") from exc
+
+
+def account_balance(credentials: TurboFlowCredentials, *, coin_code: str | None = None, timeout_seconds: float = 8.0) -> float:
+    coin = str(coin_code or credentials.coin_code).upper()
+    response = request_json("GET", ASSETS_PATH, credentials=credentials, timeout_seconds=timeout_seconds)
+    if response.get("http_status") != 200:
+        raise RuntimeError(f"TurboFlow assets failed: {response}")
+    rows = asset_rows(response.get("body"))
+    for row in rows:
+        if str(row.get("coin_code") or row.get("coinCode") or row.get("coin") or "").upper() != coin:
+            continue
+        for key in ("availableBalanceOfU", "available_balance", "availableBalance", "available", "balance", "equityOfU", "equity"):
+            value = positive_number(row.get(key))
+            if value is not None:
+                return value
+    raise RuntimeError(f"TurboFlow {coin} balance missing")
+
+
+def asset_rows(body: Any) -> list[dict[str, Any]]:
+    data = body.get("data") if isinstance(body, dict) else body
+    if isinstance(data, list):
+        return [row for row in data if isinstance(row, dict)]
+    if isinstance(data, dict):
+        for key in ("data", "list", "assets", "rows"):
+            rows = data.get(key)
+            if isinstance(rows, list):
+                return [row for row in rows if isinstance(row, dict)]
+    return []
+
+
+def positive_number(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
 
 
 def build_order_fields(
@@ -120,16 +169,16 @@ def place_order(
     symbol: str,
     timeframe: str,
     side: str,
+    return_rate: str,
     timeout_seconds: float = 15.0,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    rate = return_rate_for(symbol=symbol, timeframe=timeframe, side=side)
     payload = build_order_fields(
         credentials=credentials,
         amount=amount,
         symbol=symbol,
         timeframe=timeframe,
         side=side,
-        return_rate=rate,
+        return_rate=return_rate,
     )
     return payload, request_json(
         "POST",

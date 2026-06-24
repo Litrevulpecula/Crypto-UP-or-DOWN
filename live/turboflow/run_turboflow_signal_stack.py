@@ -42,6 +42,10 @@ def stop_process(process: subprocess.Popen) -> None:
         pass
 
 
+def raise_keyboard_interrupt(_signum: int, _frame: object) -> None:
+    raise KeyboardInterrupt
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run local LightGBM signal generation for TurboFlow execution.")
     parser.add_argument("--data-root", type=Path, default=Path("aligned_data_oos"))
@@ -76,12 +80,18 @@ def main() -> int:
         str(args.rest_catchup_minutes),
         "--rest-catchup-seconds",
         str(args.rest_catchup_seconds),
+        "--rest-catchup-market",
+        "binance_spot_klines",
+        "--rest-catchup-market",
+        "binance_um_futures_klines",
         "--signal-file",
         str(args.signal_file),
     ]
     for item in args.signal_model_dir or DEFAULT_SIGNAL_MODEL_DIRS:
         command.extend(["--signal-model-dir", item])
 
+    signal.signal(signal.SIGTERM, raise_keyboard_interrupt)
+    signal.signal(signal.SIGHUP, raise_keyboard_interrupt)
     process: subprocess.Popen | None = None
     try:
         print(f"start update_live_klines.py: {' '.join(command)}", flush=True)

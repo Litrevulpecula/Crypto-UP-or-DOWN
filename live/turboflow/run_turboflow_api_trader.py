@@ -13,10 +13,12 @@ from typing import Any
 
 from turboflow_api_client import (
     TurboFlowCredentials,
+    account_balance,
     build_order_fields,
     normalize_timeframe,
     place_order,
-    return_rate_for,
+    return_rate_from_map,
+    return_rate_map,
 )
 
 
@@ -26,6 +28,19 @@ DEFAULT_STATE_FILE = ROOT / "runtime" / "turboflow_api_state.json"
 DEFAULT_DRYRUN_STATE_FILE = ROOT / "runtime" / "turboflow_api_dryrun_state.json"
 DEFAULT_LOG_FILE = ROOT / "runtime" / "turboflow_api_orders.jsonl"
 DEFAULT_CONTROL_FILE = ROOT / "runtime" / "turboflow_control.json"
+DEFAULT_BANKROLL = 200.0
+MIN_ORDER_AMOUNT = 2.0
+BALANCE_REFRESH_SECONDS = 30.0
+BALANCE_TIMEOUT_SECONDS = 2.0
+CONFIG_TIMEOUT_SECONDS = 3.0
+QUARTER_KELLY = {
+    ("BTCUSDT", "3m"): 0.02207,
+    ("ETHUSDT", "3m"): 0.01297,
+    ("BTCUSDT", "5m"): 0.01218,
+    ("ETHUSDT", "5m"): 0.01264,
+    ("BTCUSDT", "15m"): 0.02069,
+    ("ETHUSDT", "15m"): 0.01839,
+}
 
 
 @dataclass(frozen=True)
@@ -72,6 +87,9 @@ def main() -> int:
     if not args.live:
         state.processed.update(read_logged_signal_ids(args.log_file))
     credentials = TurboFlowCredentials.from_env() if args.live else dry_run_credentials()
+    rates = return_rate_map(timeout_seconds=CONFIG_TIMEOUT_SECONDS)
+    balance = BalanceCache(credentials, args.live, args.bankroll)
+    balance.refresh(args.bankroll)
     print(
         f"TurboFlow trader start live={args.live} signal_file={args.signal_file} "
         f"timeframes={','.join(sorted(allowed_timeframes))}",
@@ -80,18 +98,28 @@ def main() -> int:
     events = signal_file_events(args.signal_file, args.poll_seconds)
     while True:
         try:
-            control = read_control(args.control_file)
+            control = read_control(args.control_file, args.bankroll)
             if not control["enabled"]:
                 if args.once:
                     return 0
                 time.sleep(args.poll_seconds)
                 continue
-            amount = selected_amount(args.amount, control["order_amount"])
-            for signal in read_signals(args.signal_file):
-                if signal.timeframe not in allowed_timeframes or state.seen(signal.signal_id):
-                    continue
+            signals = [
+                signal
+                for signal in read_signals(args.signal_file)
+                if signal.timeframe in allowed_timeframes and not state.seen(signal.signal_id)
+            ]
+            if not signals:
+                balance.refresh(control["bankroll"])
+                if args.once:
+                    return 0
+                next(events)
+                continue
+            for signal in signals:
+                bankroll, bankroll_source = balance.current(control["bankroll"])
+                amount = order_amount(signal, bankroll)
                 order_started_at = datetime.now(timezone.utc).isoformat()
-                rate = return_rate_for(symbol=signal.symbol, timeframe=signal.timeframe, side=signal.side)
+                rate = return_rate_from_map(rates, symbol=signal.symbol, timeframe=signal.timeframe, side=signal.side)
                 api_order = build_order_fields(
                     credentials=credentials,
                     amount=amount,
@@ -107,12 +135,15 @@ def main() -> int:
                         symbol=signal.symbol,
                         timeframe=signal.timeframe,
                         side=signal.side,
+                        return_rate=rate,
                     )
                     success = order_succeeded(response)
                 else:
                     response = {"dry_run": True}
                     success = True
-                record_order(args.log_file, signal, api_order, response, args.live, order_started_at, success)
+                record_order(args.log_file, signal, api_order, response, args.live, order_started_at, success, bankroll, bankroll_source)
+                if success:
+                    balance.debit(float(api_order["amount"]))
                 state.mark(signal.signal_id)
                 status = "submitted" if args.live and success else "failed" if args.live else "dry_run"
                 print(f"{status} {signal.signal_id} {signal.symbol} {signal.timeframe} {signal.side}", flush=True)
@@ -131,7 +162,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--log-file", type=Path, default=DEFAULT_LOG_FILE)
     parser.add_argument("--control-file", type=Path, default=DEFAULT_CONTROL_FILE)
     parser.add_argument("--poll-seconds", type=float, default=0.05)
-    parser.add_argument("--amount", default="3")
+    parser.add_argument("--bankroll", type=float, default=DEFAULT_BANKROLL)
     parser.add_argument("--timeframes", default="3m,5m,15m")
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--once", action="store_true")
@@ -184,24 +215,77 @@ def linux_inotify_events(path: Path):
         os.close(fd)
 
 
-def read_control(path: Path) -> dict[str, Any]:
+def read_control(path: Path, default_bankroll: float = DEFAULT_BANKROLL) -> dict[str, Any]:
     if not path.exists():
-        return {"enabled": True, "order_amount": None}
+        return {"enabled": True, "bankroll": positive_float(default_bankroll, DEFAULT_BANKROLL)}
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
-        return {"enabled": True, "order_amount": None}
-    return {"enabled": bool(payload.get("enabled", True)), "order_amount": payload.get("order_amount")}
+        return {"enabled": True, "bankroll": positive_float(default_bankroll, DEFAULT_BANKROLL)}
+    return {
+        "enabled": bool(payload.get("enabled", True)),
+        "bankroll": positive_float(payload.get("bankroll"), positive_float(default_bankroll, DEFAULT_BANKROLL)),
+    }
 
 
-def selected_amount(cli_amount: Any, control_amount: Any) -> str:
-    for value in (control_amount, cli_amount):
-        try:
-            if float(value) > 0:
-                return str(value)
-        except (TypeError, ValueError):
-            pass
-    raise ValueError(f"order amount must be positive, got {cli_amount!r}")
+def order_amount(signal: Signal, bankroll: Any) -> str:
+    key = (normalize_symbol(signal.symbol), signal.timeframe)
+    if key not in QUARTER_KELLY:
+        raise ValueError(f"Kelly amount missing for {signal.symbol} {signal.timeframe}")
+    amount = max(MIN_ORDER_AMOUNT, positive_float(bankroll, DEFAULT_BANKROLL) * QUARTER_KELLY[key])
+    return f"{amount:.2f}"
+
+
+class BalanceCache:
+    def __init__(self, credentials: TurboFlowCredentials, live: bool, fallback: Any) -> None:
+        self.credentials = credentials
+        self.live = live
+        self.value = positive_float(fallback, DEFAULT_BANKROLL)
+        self.source = "fallback"
+        self.refresh_at = 0.0
+
+    def current(self, fallback: Any) -> tuple[float, str]:
+        if not self.live:
+            self.value = positive_float(fallback, DEFAULT_BANKROLL)
+            self.source = "fallback"
+        elif self.source == "fallback":
+            self.value = positive_float(fallback, DEFAULT_BANKROLL)
+        return self.value, self.source
+
+    def refresh(self, fallback: Any) -> None:
+        if not self.live:
+            self.value = positive_float(fallback, DEFAULT_BANKROLL)
+            self.source = "fallback"
+            return
+        now = time.monotonic()
+        if now >= self.refresh_at:
+            self.refresh_at = now + BALANCE_REFRESH_SECONDS
+            try:
+                self.value = account_balance(self.credentials, timeout_seconds=BALANCE_TIMEOUT_SECONDS)
+                self.source = "turboflow"
+            except RuntimeError as exc:
+                self.value = positive_float(fallback, DEFAULT_BANKROLL)
+                self.source = "fallback"
+                print(f"balance fallback: {exc}", flush=True)
+
+    def debit(self, amount: float) -> None:
+        if self.live and self.source == "turboflow":
+            self.value = max(0.0, self.value - amount)
+
+
+def positive_float(value: Any, default: float) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    return number if number > 0 else default
+
+
+def normalize_symbol(value: str) -> str:
+    text = str(value or "").strip().upper().replace("-", "").replace("/", "").replace("_", "")
+    if text in {"BTC", "ETH"}:
+        text += "USDT"
+    return text
 
 
 def read_signals(path: Path) -> list[Signal]:
@@ -273,6 +357,8 @@ def record_order(
     live: bool,
     order_started_at: str,
     success: bool,
+    bankroll: float,
+    bankroll_source: str,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     record = {
@@ -291,6 +377,8 @@ def record_order(
         "order_started_at": order_started_at,
         "success": success,
         "payout_rate": float(api_order["return_rate"]),
+        "bankroll": bankroll,
+        "bankroll_source": bankroll_source,
     }
     with path.open("a", encoding="utf-8") as handle:
         json.dump(record, handle, ensure_ascii=False)

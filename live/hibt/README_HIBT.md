@@ -17,7 +17,6 @@ API trader 只读取 `lightgbm_live_signal_writer` 写出的 `signals` 列表，
 live/hibt/
 ├── run_hibt_signal_stack.py    # 本地 kline + LightGBM 信号生成
 ├── run_hibt_api_trader.py      # 读取 signals.json 并通过 HiBT web API 下单
-├── control_panel.py            # HiBT-only 前端控制面板和统计
 ├── hibt_api_client.py          # HiBT web API order client
 ├── signals.json                # 实盘信号输出，启动时生成
 └── signals.sample.json         # 信号格式示例
@@ -59,7 +58,7 @@ API trader 默认 dry-run，不会下单：
 前端控制面板：
 
 ```bash
-.venv/bin/python live/hibt/control_panel.py --host 127.0.0.1 --port 8765
+.venv/bin/python live/control_panel.py --venue hibt --host 127.0.0.1 --port 8765
 ```
 
 前端写入 `live/hibt/runtime/hibt_control.json`，只包含 HiBT 启用开关和统一下单金额。

@@ -25,18 +25,12 @@ Refresh a live model:
 .venv/bin/python live/train_live_model.py
 ```
 
-Run the live signal stack:
-
-```bash
-.venv/bin/python live/run_signal_stack.py --signal-file live/signals.json
-```
-
 Run TurboFlow components:
 
 ```bash
 .venv/bin/python live/turboflow/run_turboflow_signal_stack.py
 .venv/bin/python live/turboflow/run_turboflow_api_trader.py --timeframes 3m,5m,15m
-.venv/bin/python live/turboflow/control_panel.py --host 127.0.0.1 --port 8765
+.venv/bin/python live/control_panel.py --venue turboflow --host 127.0.0.1 --port 8765
 ```
 
 See `live/turboflow/README_TURBOFLOW.md` for TurboFlow details. HiBT remains documented in `live/hibt/README_HIBT.md`.
