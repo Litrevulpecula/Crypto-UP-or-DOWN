@@ -35,6 +35,7 @@ MIN_ORDER_AMOUNT = 2.0
 BALANCE_REFRESH_SECONDS = 30.0
 BALANCE_TIMEOUT_SECONDS = 2.0
 CONFIG_TIMEOUT_SECONDS = 3.0
+MAX_SIGNAL_AGE_SECONDS = 10.0
 QUARTER_KELLY = {
     ("BTCUSDT", "3m"): 0.02207,
     ("ETHUSDT", "3m"): 0.01297,
@@ -123,6 +124,10 @@ def main() -> int:
                 next(events)
                 continue
             for signal in signals:
+                if is_stale_signal(signal):
+                    print(f"skip stale {signal.signal_id}", flush=True)
+                    state.mark(signal.signal_id)
+                    continue
                 try:
                     bankroll, bankroll_source = balance.current(control_bankroll)
                 except RuntimeError as exc:
@@ -357,9 +362,9 @@ def settle(row: dict[str, Any], closes: dict[str, dict[int, float]]) -> dict[str
     signal = row.get("signal") if isinstance(row.get("signal"), dict) else {}
     try:
         minutes = int(str(signal.get("timeframe", "")).lower().removesuffix("m"))
-        decision_time = parse_dt(signal.get("decision_time"))
-        start_time = parse_dt(signal.get("last_kline_time"))
-        end_time = decision_time + timedelta(minutes=minutes - 1)
+        order_time = parse_dt(row.get("order_started_at"))
+        start_time = completed_kline_open_time(order_time)
+        end_time = completed_kline_open_time(order_time + timedelta(minutes=minutes))
         start_close = closes.get(normalize_symbol(signal.get("symbol", "")), {}).get(to_ms(start_time))
         end_close = closes.get(normalize_symbol(signal.get("symbol", "")), {}).get(to_ms(end_time))
     except (TypeError, ValueError):
@@ -368,6 +373,19 @@ def settle(row: dict[str, Any], closes: dict[str, dict[int, float]]) -> dict[str
         return None
     up = str(signal.get("side", "")).upper() == "BUY"
     return {"win": end_close > start_close if up else end_close < start_close}
+
+
+def is_stale_signal(signal: Signal) -> bool:
+    try:
+        age = (datetime.now(timezone.utc) - parse_dt(signal.decision_time)).total_seconds()
+    except ValueError:
+        return True
+    return age > MAX_SIGNAL_AGE_SECONDS
+
+
+def completed_kline_open_time(value: datetime) -> datetime:
+    minute = value.replace(second=0, microsecond=0)
+    return minute - timedelta(minutes=1)
 
 
 def pnl_for(row: dict[str, Any], outcome: dict[str, bool]) -> float:
@@ -412,12 +430,14 @@ def self_test() -> None:
                 "decision_time": decision.isoformat(),
                 "last_kline_time": (decision - timedelta(minutes=1)).isoformat(),
             },
+            "order_started_at": (decision + timedelta(seconds=1)).isoformat(),
             "order": {"amount": "3"},
             "payout_rate": 0.8,
         }
         log.write_text(json.dumps(row) + "\n", encoding="utf-8")
         assert abs(effective_bankroll(False, log, data_root, 200.0) - 202.4) < 1e-9
         assert effective_bankroll(True, log, data_root, 200.0) == 200.0
+        assert completed_kline_open_time(decision + timedelta(seconds=1)) == decision - timedelta(minutes=1)
 
 
 def read_signals(path: Path) -> list[Signal]:

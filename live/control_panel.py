@@ -680,9 +680,9 @@ def settle(row: dict[str, Any], closes: dict[str, dict[int, float]]) -> dict[str
     signal = row.get("signal") if isinstance(row.get("signal"), dict) else {}
     try:
         minutes = timeframe_minutes(signal.get("timeframe"))
-        decision_time = parse_dt(signal.get("decision_time"))
-        start_time = parse_dt(signal.get("last_kline_time"))
-        end_time = decision_time + timedelta(minutes=minutes - 1)
+        order_time = parse_dt(row.get("order_started_at"))
+        start_time = completed_kline_open_time(order_time)
+        end_time = completed_kline_open_time(order_time + timedelta(minutes=minutes))
         direction = signal_side(signal.get("side"))
     except (TypeError, ValueError):
         return None
@@ -696,6 +696,11 @@ def settle(row: dict[str, Any], closes: dict[str, dict[int, float]]) -> dict[str
         "start_close": start_close,
         "end_close": end_close,
     }
+
+
+def completed_kline_open_time(value: datetime) -> datetime:
+    minute = value.replace(second=0, microsecond=0)
+    return minute - timedelta(minutes=1)
 
 
 def parse_dt(value: Any) -> datetime:
@@ -842,6 +847,7 @@ def self_test() -> None:
         assert state["stats"]["avg_payout_rate"] == HIBT_PAYOUT_RATE
         assert abs(state["stats"]["equity_curve"][-1]["pnl"] - 2.4) < 1e-9
         assert state["stats"]["timeframes"]["5m"]["avg_order_delay_seconds"] == 2.0
+        assert completed_kline_open_time(decision + timedelta(seconds=2)) == decision - timedelta(minutes=1)
         tf_state = build_state(root / "tf_control.json", log, data_root, 1, "turboflow", "TurboFlow")
         assert tf_state["control"]["bankroll"] == DEFAULT_BANKROLL
         assert tf_state["stats"]["latest_bankroll"] == 250.0
