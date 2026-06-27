@@ -18,6 +18,7 @@ DEFAULT_DATA_ROOT = ROOT.parent / "aligned_data_oos"
 HIBT_PAYOUT_RATE = 0.80
 DEFAULT_BANKROLL = 200.0
 MIN_BANKROLL = 2.0
+MAX_SIGNAL_AGE_SECONDS = 10.0
 KELLY_FRACTIONS = [
     ("BTC", "3m", 0.02207),
     ("ETH", "3m", 0.01297),
@@ -512,7 +513,7 @@ def build_state(control_file: Path, log_file: Path, data_root: Path, tail: int, 
 
 
 def stats(records: list[dict[str, Any]], closes: dict[str, dict[int, float]]) -> dict[str, Any]:
-    items = [(row, settle(row, closes)) for row in records]
+    items = [(row, settle(row, closes)) for row in records if not stale_record(row)]
     return {
         **summarize(items),
         "records": len(records),
@@ -582,6 +583,7 @@ def recent(records: list[dict[str, Any]], closes: dict[str, dict[int, float]]) -
         signal = row.get("signal") if isinstance(row.get("signal"), dict) else {}
         order = row.get("order") if isinstance(row.get("order"), dict) else {}
         outcome = settle(row, closes)
+        stale = stale_record(row)
         rows.append(
             {
                 "logged_at": row.get("logged_at", ""),
@@ -594,8 +596,8 @@ def recent(records: list[dict[str, Any]], closes: dict[str, dict[int, float]]) -
                 "signal_delay_seconds": signal_delay_seconds(row),
                 "trader_delay_seconds": trader_delay_seconds(row),
                 "success": bool(row.get("success")),
-                "outcome": None if outcome is None else ("win" if outcome["win"] else "loss"),
-                "pnl": None if outcome is None else pnl_for(row, outcome),
+                "outcome": "stale" if stale else None if outcome is None else ("win" if outcome["win"] else "loss"),
+                "pnl": None if stale or outcome is None else pnl_for(row, outcome),
             }
         )
     return rows
@@ -614,6 +616,11 @@ def order_delay_seconds(row: dict[str, Any]) -> float | None:
     except (TypeError, ValueError):
         return None
     return (order_start - event_start).total_seconds()
+
+
+def stale_record(row: dict[str, Any]) -> bool:
+    delay = order_delay_seconds(row)
+    return delay is not None and delay > MAX_SIGNAL_AGE_SECONDS
 
 
 def signal_delay_seconds(row: dict[str, Any]) -> float | None:
@@ -853,8 +860,16 @@ def self_test() -> None:
         assert tf_state["stats"]["latest_bankroll"] == 250.0
         assert tf_state["stats"]["kelly_bankroll"] == 250.0
         dry_log = root / "dry.jsonl"
-        dry_log.write_text(json.dumps({**row, "bankroll": 200.0, "bankroll_source": "dry_run"}) + "\n", encoding="utf-8")
-        assert abs(build_state(root / "tf_control.json", dry_log, data_root, 1, "turboflow", "TurboFlow")["stats"]["kelly_bankroll"] - 202.4) < 1e-9
+        stale_row = {**row, "order_started_at": (decision + timedelta(seconds=20)).isoformat()}
+        dry_log.write_text(
+            json.dumps({**row, "bankroll": 200.0, "bankroll_source": "dry_run"}) + "\n"
+            + json.dumps({**stale_row, "bankroll": 200.0, "bankroll_source": "dry_run"}) + "\n",
+            encoding="utf-8",
+        )
+        dry_state = build_state(root / "tf_control.json", dry_log, data_root, 0, "turboflow", "TurboFlow")
+        assert dry_state["stats"]["count"] == 1
+        assert abs(dry_state["stats"]["kelly_bankroll"] - 202.4) < 1e-9
+        assert recent([stale_row], {normalize_symbol("BTCUSDT"): read_live_closes(data_root, "BTCUSDT")})[0]["outcome"] == "stale"
 
 
 def main() -> int:

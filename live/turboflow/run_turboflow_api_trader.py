@@ -330,7 +330,7 @@ def settled_pnl(log_file: Path, data_root: Path) -> float:
                 row = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if isinstance(row, dict) and row.get("success"):
+            if isinstance(row, dict) and row.get("success") and not stale_record(row):
                 records.append(row)
     closes = {symbol: read_live_closes(data_root, symbol) for symbol in symbols_for(records)}
     return sum(pnl_for(row, outcome) for row in records if (outcome := settle(row, closes)) is not None)
@@ -380,6 +380,15 @@ def is_stale_signal(signal: Signal) -> bool:
         age = (datetime.now(timezone.utc) - parse_dt(signal.decision_time)).total_seconds()
     except ValueError:
         return True
+    return age > MAX_SIGNAL_AGE_SECONDS
+
+
+def stale_record(row: dict[str, Any]) -> bool:
+    signal = row.get("signal") if isinstance(row.get("signal"), dict) else {}
+    try:
+        age = (parse_dt(row.get("order_started_at")) - parse_dt(signal.get("decision_time"))).total_seconds()
+    except (TypeError, ValueError):
+        return False
     return age > MAX_SIGNAL_AGE_SECONDS
 
 
@@ -435,6 +444,9 @@ def self_test() -> None:
             "payout_rate": 0.8,
         }
         log.write_text(json.dumps(row) + "\n", encoding="utf-8")
+        assert abs(effective_bankroll(False, log, data_root, 200.0) - 202.4) < 1e-9
+        stale_row = {**row, "order_started_at": (decision + timedelta(seconds=20)).isoformat()}
+        log.write_text(json.dumps(row) + "\n" + json.dumps(stale_row) + "\n", encoding="utf-8")
         assert abs(effective_bankroll(False, log, data_root, 200.0) - 202.4) < 1e-9
         assert effective_bankroll(True, log, data_root, 200.0) == 200.0
         assert completed_kline_open_time(decision + timedelta(seconds=1)) == decision - timedelta(minutes=1)
