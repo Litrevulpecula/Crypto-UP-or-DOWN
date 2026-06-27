@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
 import time
@@ -343,14 +344,11 @@ def read_live_closes(data_root: Path, symbol: str) -> dict[int, float]:
     closes: dict[int, float] = {}
     if not path.exists():
         return closes
-    with path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            parts = line.strip().split(",")
-            if len(parts) < 2 or parts[0] == "open_time":
-                continue
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
             try:
-                closes[int(parts[0])] = float(parts[1])
-            except ValueError:
+                closes[int(row["open_time"])] = float(row["close"])
+            except (KeyError, TypeError, ValueError):
                 continue
     return closes
 
