@@ -197,7 +197,7 @@ INDEX_HTML = r"""<!doctype html>
     }
     function winText(row) { return row.settled ? `${pct(row.win_rate)} (${row.wins}/${row.settled})` : "N/A"; }
     function kellyAmount(bankroll, fraction) { return Math.max(2, Number(bankroll || 200) * fraction); }
-    function renderControls(control) {
+    function renderControls(control, kellyBankroll, bankrollSource) {
       const isTurbo = currentVenue === "turboflow";
       $("controls").innerHTML = `
         <section class="panel">
@@ -216,6 +216,7 @@ INDEX_HTML = r"""<!doctype html>
         </section>
         ${isTurbo ? `<section class="panel">
           <h2>Kelly Amount</h2>
+          <div class="muted" id="kelly_source"></div>
           <table>
             <colgroup><col style="width:32%"><col style="width:28%"><col style="width:40%"></colgroup>
             <thead><tr><th>币种</th><th>周期</th><th class="num">金额</th></tr></thead>
@@ -228,28 +229,30 @@ INDEX_HTML = r"""<!doctype html>
       document.querySelectorAll("#controls input").forEach((input) => {
         input.addEventListener("input", () => {
           if (loadedOnce) dirty = true;
-          if (currentVenue === "turboflow") renderKelly($("bankroll").value);
+          if (currentVenue === "turboflow") renderKelly($("bankroll").value, "dry-run input");
           $("status").textContent = "未保存";
         });
       });
       $("enabled").checked = Boolean(control.enabled);
       if (isTurbo) {
         $("bankroll").value = control.bankroll;
-        renderKelly(control.bankroll);
+        renderKelly(kellyBankroll, bankrollSource);
       } else {
         $("order_amount").value = control.order_amount;
       }
     }
-    function renderKelly(bankroll) {
+    function renderKelly(bankroll, source) {
       const table = $("kelly");
       if (!table) return;
+      const sourceEl = $("kelly_source");
+      if (sourceEl) sourceEl.textContent = `bankroll ${money(bankroll)} · ${source || "dry-run"}`;
       table.innerHTML = kellyFractions.map(([symbol, timeframe, fraction]) => `
         <tr><td>${symbol}</td><td><span class="pill">${timeframe}</span></td><td class="num">${money(kellyAmount(bankroll, fraction))}</td></tr>
       `).join("");
     }
-    function setForm(control) {
+    function setForm(control, kellyBankroll, bankrollSource) {
       if (dirty) return;
-      renderControls(control);
+      renderControls(control, kellyBankroll, bankrollSource);
     }
     function collectForm() {
       if (currentVenue === "turboflow") return { enabled: $("enabled").checked, bankroll: Number($("bankroll").value) };
@@ -382,9 +385,11 @@ INDEX_HTML = r"""<!doctype html>
       kellyFractions = data.kelly_fractions || [];
       $("venue_title").textContent = data.venue_name || "Execution";
       $("venue_note").textContent = currentVenue === "turboflow"
-        ? "Live orders use the TurboFlow USDT available balance. This number only changes dry-run sizing."
+        ? "Live orders use the TurboFlow USDT available balance; the input only changes dry-run sizing."
         : "金额和开关写入控制文件，trader 下一次信号处理生效。";
-      setForm(data.control);
+      const kellyBankroll = data.stats.kelly_bankroll || data.control.bankroll;
+      const bankrollSource = data.stats.latest_bankroll ? "latest live order" : "dry-run equity";
+      setForm(data.control, kellyBankroll, bankrollSource);
       renderStats(data.stats);
       renderCurve(data.stats.equity_curve);
       renderRecent(data.recent);
@@ -487,12 +492,16 @@ def read_jsonl_tail(path: Path, limit: int) -> list[dict[str, Any]]:
 def build_state(control_file: Path, log_file: Path, data_root: Path, tail: int, venue: str, venue_name: str) -> dict[str, Any]:
     records = read_jsonl_tail(log_file, tail)
     closes = read_closes_for(records, data_root)
+    control = read_control(control_file, venue)
+    stat_rows = stats(records, closes)
+    if venue == "turboflow":
+        stat_rows["kelly_bankroll"] = stat_rows["latest_bankroll"] or max(MIN_BANKROLL, control["bankroll"] + stat_rows["pnl"])
     return {
         "venue": venue,
         "venue_name": venue_name,
         "kelly_fractions": KELLY_FRACTIONS if venue == "turboflow" else [],
-        "control": read_control(control_file, venue),
-        "stats": stats(records, closes),
+        "control": control,
+        "stats": stat_rows,
         "recent": recent(records, closes),
         "files": {
             "control_file": str(control_file),
@@ -542,7 +551,18 @@ def summarize(items: list[tuple[dict[str, Any], dict[str, Any] | None]], total: 
         "win_rate": None if not outcomes else wins / len(outcomes),
         "pnl": pnl,
         "equity_curve": equity_curve(items),
+        "latest_bankroll": latest_bankroll([row for row, _outcome in items]),
     }
+
+
+def latest_bankroll(records: list[dict[str, Any]]) -> float | None:
+    for row in reversed(records):
+        if row.get("bankroll_source") != "turboflow":
+            continue
+        value = parse_amount(row.get("bankroll"))
+        if value is not None:
+            return value
+    return None
 
 
 def equity_curve(items: list[tuple[dict[str, Any], dict[str, Any] | None]]) -> list[dict[str, Any]]:
@@ -808,6 +828,8 @@ def self_test() -> None:
             "payout_rate": 0.8,
             "order_started_at": (decision + timedelta(seconds=2)).isoformat(),
             "success": True,
+            "bankroll": 250.0,
+            "bankroll_source": "turboflow",
         }
         log.write_text(json.dumps({**row, "success": False}) + "\n" + json.dumps(row) + "\n", encoding="utf-8")
         state = build_state(root / "control.json", log, data_root, 100, "hibt", "HiBT")
@@ -820,7 +842,13 @@ def self_test() -> None:
         assert state["stats"]["avg_payout_rate"] == HIBT_PAYOUT_RATE
         assert abs(state["stats"]["equity_curve"][-1]["pnl"] - 2.4) < 1e-9
         assert state["stats"]["timeframes"]["5m"]["avg_order_delay_seconds"] == 2.0
-        assert build_state(root / "tf_control.json", log, data_root, 1, "turboflow", "TurboFlow")["control"]["bankroll"] == DEFAULT_BANKROLL
+        tf_state = build_state(root / "tf_control.json", log, data_root, 1, "turboflow", "TurboFlow")
+        assert tf_state["control"]["bankroll"] == DEFAULT_BANKROLL
+        assert tf_state["stats"]["latest_bankroll"] == 250.0
+        assert tf_state["stats"]["kelly_bankroll"] == 250.0
+        dry_log = root / "dry.jsonl"
+        dry_log.write_text(json.dumps({**row, "bankroll": 200.0, "bankroll_source": "dry_run"}) + "\n", encoding="utf-8")
+        assert abs(build_state(root / "tf_control.json", dry_log, data_root, 1, "turboflow", "TurboFlow")["stats"]["kelly_bankroll"] - 202.4) < 1e-9
 
 
 def main() -> int:

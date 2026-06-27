@@ -6,9 +6,9 @@ import json
 import os
 import time
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Any
 
 from turboflow_api_client import (
@@ -28,6 +28,7 @@ DEFAULT_STATE_FILE = ROOT / "runtime" / "turboflow_api_state.json"
 DEFAULT_DRYRUN_STATE_FILE = ROOT / "runtime" / "turboflow_api_dryrun_state.json"
 DEFAULT_LOG_FILE = ROOT / "runtime" / "turboflow_api_orders.jsonl"
 DEFAULT_CONTROL_FILE = ROOT / "runtime" / "turboflow_control.json"
+DEFAULT_DATA_ROOT = ROOT.parent.parent / "aligned_data_oos"
 DEFAULT_BANKROLL = 200.0
 MIN_ORDER_AMOUNT = 2.0
 BALANCE_REFRESH_SECONDS = 30.0
@@ -80,6 +81,9 @@ class State:
 
 def main() -> int:
     args = parse_args()
+    if args.self_test:
+        self_test()
+        return 0
     if not args.live and args.state_file == DEFAULT_STATE_FILE:
         args.state_file = DEFAULT_DRYRUN_STATE_FILE
     allowed_timeframes = {normalize_timeframe(item) for item in args.timeframes.split(",") if item.strip()}
@@ -104,20 +108,22 @@ def main() -> int:
                     return 0
                 time.sleep(args.poll_seconds)
                 continue
+            control_bankroll = effective_bankroll(args.live, args.log_file, args.data_root, control["bankroll"])
             signals = [
                 signal
                 for signal in read_signals(args.signal_file)
                 if signal.timeframe in allowed_timeframes and not state.seen(signal.signal_id)
             ]
             if not signals:
-                balance.refresh(control["bankroll"])
+                if args.live:
+                    balance.refresh(control_bankroll)
                 if args.once:
                     return 0
                 next(events)
                 continue
             for signal in signals:
                 try:
-                    bankroll, bankroll_source = balance.current(control["bankroll"])
+                    bankroll, bankroll_source = balance.current(control_bankroll)
                 except RuntimeError as exc:
                     print(f"skip {signal.signal_id}: {exc}", flush=True)
                     state.mark(signal.signal_id)
@@ -168,9 +174,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--control-file", type=Path, default=DEFAULT_CONTROL_FILE)
     parser.add_argument("--poll-seconds", type=float, default=0.05)
     parser.add_argument("--bankroll", type=float, default=DEFAULT_BANKROLL)
+    parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
     parser.add_argument("--timeframes", default="3m,5m,15m")
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--once", action="store_true")
+    parser.add_argument("--self-test", action="store_true")
     return parser.parse_args()
 
 
@@ -204,8 +212,11 @@ def linux_inotify_events(path: Path):
             raise OSError(ctypes.get_errno(), f"inotify_add_watch failed: {path.parent}")
         poller = select.poll()
         poller.register(fd, select.POLLIN)
+        timeout_ms = max(1000, int(poll_seconds * 1000))
         while True:
-            poller.poll()
+            if not poller.poll(timeout_ms):
+                yield
+                continue
             data = os.read(fd, 4096)
             offset = 0
             changed = False
@@ -294,6 +305,121 @@ def normalize_symbol(value: str) -> str:
     if text in {"BTC", "ETH"}:
         text += "USDT"
     return text
+
+
+def effective_bankroll(live: bool, log_file: Path, data_root: Path, base_bankroll: Any) -> float:
+    base = positive_float(base_bankroll, DEFAULT_BANKROLL)
+    if live:
+        return base
+    return max(MIN_ORDER_AMOUNT, base + settled_pnl(log_file, data_root))
+
+
+def settled_pnl(log_file: Path, data_root: Path) -> float:
+    if not log_file.exists():
+        return 0.0
+    records = []
+    with log_file.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict) and row.get("success"):
+                records.append(row)
+    closes = {symbol: read_live_closes(data_root, symbol) for symbol in symbols_for(records)}
+    return sum(pnl_for(row, outcome) for row in records if (outcome := settle(row, closes)) is not None)
+
+
+def symbols_for(records: list[dict[str, Any]]) -> set[str]:
+    return {
+        normalize_symbol(signal.get("symbol", ""))
+        for row in records
+        if isinstance(signal := row.get("signal"), dict)
+    }
+
+
+def read_live_closes(data_root: Path, symbol: str) -> dict[int, float]:
+    path = data_root / "binance_spot_klines" / symbol / "1m_live.csv"
+    closes: dict[int, float] = {}
+    if not path.exists():
+        return closes
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            parts = line.strip().split(",")
+            if len(parts) < 2 or parts[0] == "open_time":
+                continue
+            try:
+                closes[int(parts[0])] = float(parts[1])
+            except ValueError:
+                continue
+    return closes
+
+
+def settle(row: dict[str, Any], closes: dict[str, dict[int, float]]) -> dict[str, bool] | None:
+    signal = row.get("signal") if isinstance(row.get("signal"), dict) else {}
+    try:
+        minutes = int(str(signal.get("timeframe", "")).lower().removesuffix("m"))
+        decision_time = parse_dt(signal.get("decision_time"))
+        start_time = parse_dt(signal.get("last_kline_time"))
+        end_time = decision_time + timedelta(minutes=minutes - 1)
+        start_close = closes.get(normalize_symbol(signal.get("symbol", "")), {}).get(to_ms(start_time))
+        end_close = closes.get(normalize_symbol(signal.get("symbol", "")), {}).get(to_ms(end_time))
+    except (TypeError, ValueError):
+        return None
+    if start_close is None or end_close is None or start_close == end_close:
+        return None
+    up = str(signal.get("side", "")).upper() == "BUY"
+    return {"win": end_close > start_close if up else end_close < start_close}
+
+
+def pnl_for(row: dict[str, Any], outcome: dict[str, bool]) -> float:
+    order = row.get("order") if isinstance(row.get("order"), dict) else {}
+    amount = positive_float(order.get("amount"), 0.0)
+    payout_rate = positive_float(row.get("payout_rate"), 0.0)
+    return amount * payout_rate if outcome["win"] else -amount
+
+
+def parse_dt(value: Any) -> datetime:
+    text = str(value or "").strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    dt = datetime.fromisoformat(text)
+    return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
+
+
+def to_ms(value: datetime) -> int:
+    return int(value.timestamp() * 1000)
+
+
+def self_test() -> None:
+    with TemporaryDirectory() as temp:
+        root = Path(temp)
+        data_root = root / "aligned_data_oos"
+        live = data_root / "binance_spot_klines" / "BTCUSDT" / "1m_live.csv"
+        live.parent.mkdir(parents=True)
+        decision = datetime(2026, 6, 27, 12, 0, tzinfo=timezone.utc)
+        live.write_text(
+            "open_time,close\n"
+            f"{to_ms(decision - timedelta(minutes=1))},100\n"
+            f"{to_ms(decision + timedelta(minutes=4))},101\n",
+            encoding="utf-8",
+        )
+        log = root / "orders.jsonl"
+        row = {
+            "success": True,
+            "signal": {
+                "symbol": "BTCUSDT",
+                "timeframe": "5m",
+                "side": "BUY",
+                "decision_time": decision.isoformat(),
+                "last_kline_time": (decision - timedelta(minutes=1)).isoformat(),
+            },
+            "order": {"amount": "3"},
+            "payout_rate": 0.8,
+        }
+        log.write_text(json.dumps(row) + "\n", encoding="utf-8")
+        assert abs(effective_bankroll(False, log, data_root, 200.0) - 202.4) < 1e-9
+        assert effective_bankroll(True, log, data_root, 200.0) == 200.0
 
 
 def read_signals(path: Path) -> list[Signal]:
