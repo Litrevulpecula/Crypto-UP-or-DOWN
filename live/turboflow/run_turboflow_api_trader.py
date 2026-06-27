@@ -187,7 +187,7 @@ def signal_file_events(path: Path, poll_seconds: float):
     yield
     if os.uname().sysname == "Linux":
         try:
-            yield from linux_inotify_events(path)
+            yield from linux_inotify_events(path, poll_seconds)
             return
         except OSError as exc:
             print(f"inotify unavailable, fallback poll_seconds={poll_seconds}: {exc}", flush=True)
@@ -196,7 +196,7 @@ def signal_file_events(path: Path, poll_seconds: float):
         yield
 
 
-def linux_inotify_events(path: Path):
+def linux_inotify_events(path: Path, poll_seconds: float):
     import ctypes
     import select
     import struct
