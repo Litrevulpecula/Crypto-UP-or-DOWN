@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 from collections import deque
 from datetime import datetime, timedelta, timezone
@@ -14,7 +13,6 @@ from urllib.parse import urlparse
 
 
 ROOT = Path(__file__).resolve().parent
-DEFAULT_DATA_ROOT = ROOT.parent / "aligned_data_oos"
 HIBT_PAYOUT_RATE = 0.80
 DEFAULT_BANKROLL = 200.0
 MIN_BANKROLL = 2.0
@@ -35,12 +33,14 @@ def venue_paths(venue: str) -> dict[str, Path | str]:
             "name": "TurboFlow",
             "control_file": ROOT / "turboflow" / "runtime" / "turboflow_control.json",
             "log_file": ROOT / "turboflow" / "runtime" / "turboflow_api_orders.jsonl",
+            "settlement_file": ROOT / "turboflow" / "runtime" / "turboflow_settlements.jsonl",
         }
     if venue == "hibt":
         return {
             "name": "HiBT",
             "control_file": ROOT / "hibt" / "runtime" / "hibt_control.json",
             "log_file": ROOT / "hibt" / "runtime" / "hibt_api_orders.jsonl",
+            "settlement_file": ROOT / "hibt" / "runtime" / "hibt_settlements.jsonl",
         }
     raise ValueError(f"unknown venue: {venue}")
 
@@ -385,9 +385,7 @@ INDEX_HTML = r"""<!doctype html>
       currentVenue = data.venue;
       kellyFractions = data.kelly_fractions || [];
       $("venue_title").textContent = data.venue_name || "Execution";
-      $("venue_note").textContent = currentVenue === "turboflow"
-        ? "Live orders use the TurboFlow USDT available balance; the input only changes dry-run sizing."
-        : "金额和开关写入控制文件，trader 下一次信号处理生效。";
+      $("venue_note").textContent = currentVenue === "turboflow" ? "" : "金额和开关写入控制文件，trader 下一次信号处理生效。";
       const kellyBankroll = data.stats.kelly_bankroll || data.control.bankroll;
       const bankrollSource = data.stats.latest_bankroll ? "latest live order" : "dry-run equity";
       setForm(data.control, kellyBankroll, bankrollSource);
@@ -429,7 +427,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--venue", choices=("turboflow", "hibt"), default="turboflow")
     parser.add_argument("--control-file", type=Path, default=None)
     parser.add_argument("--log-file", type=Path, default=None)
-    parser.add_argument("--data-root", type=Path, default=DEFAULT_DATA_ROOT)
+    parser.add_argument("--settlement-file", type=Path, default=None)
     parser.add_argument("--tail", type=int, default=0, help="Rows to read from the order log. 0 reads full history.")
     parser.add_argument("--self-test", action="store_true")
     return parser.parse_args()
@@ -490,11 +488,18 @@ def read_jsonl_tail(path: Path, limit: int) -> list[dict[str, Any]]:
     return list(rows)
 
 
-def build_state(control_file: Path, log_file: Path, data_root: Path, tail: int, venue: str, venue_name: str) -> dict[str, Any]:
+def build_state(
+    control_file: Path,
+    log_file: Path,
+    settlement_file: Path,
+    tail: int,
+    venue: str,
+    venue_name: str,
+) -> dict[str, Any]:
     records = read_jsonl_tail(log_file, tail)
-    closes = read_closes_for(records, data_root)
+    settlements = read_settlements(settlement_file)
     control = read_control(control_file, venue)
-    stat_rows = stats(records, closes)
+    stat_rows = stats(records, settlements)
     if venue == "turboflow":
         stat_rows["kelly_bankroll"] = stat_rows["latest_bankroll"] or max(MIN_BANKROLL, control["bankroll"] + stat_rows["pnl"])
     return {
@@ -503,17 +508,17 @@ def build_state(control_file: Path, log_file: Path, data_root: Path, tail: int, 
         "kelly_fractions": KELLY_FRACTIONS if venue == "turboflow" else [],
         "control": control,
         "stats": stat_rows,
-        "recent": recent(records, closes),
+        "recent": recent(records, settlements),
         "files": {
             "control_file": str(control_file),
             "log_file": str(log_file),
-            "data_root": str(data_root),
+            "settlement_file": str(settlement_file),
         },
     }
 
 
-def stats(records: list[dict[str, Any]], closes: dict[str, dict[int, float]]) -> dict[str, Any]:
-    items = [(row, settle(row, closes)) for row in records if not stale_record(row)]
+def stats(records: list[dict[str, Any]], settlements: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    items = [(row, settlement_for(row, settlements)) for row in records if not stale_record(row)]
     return {
         **summarize(items),
         "records": len(records),
@@ -577,12 +582,12 @@ def equity_curve(items: list[tuple[dict[str, Any], dict[str, Any] | None]]) -> l
     return points
 
 
-def recent(records: list[dict[str, Any]], closes: dict[str, dict[int, float]]) -> list[dict[str, Any]]:
+def recent(records: list[dict[str, Any]], settlements: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     rows = []
     for row in reversed(records[-50:]):
         signal = row.get("signal") if isinstance(row.get("signal"), dict) else {}
         order = row.get("order") if isinstance(row.get("order"), dict) else {}
-        outcome = settle(row, closes)
+        outcome = settlement_for(row, settlements)
         stale = stale_record(row)
         rows.append(
             {
@@ -644,6 +649,9 @@ def trader_delay_seconds(row: dict[str, Any]) -> float | None:
 
 
 def pnl_for(row: dict[str, Any], outcome: dict[str, Any]) -> float:
+    value = parse_amount(outcome.get("pnl"))
+    if value is not None:
+        return value
     order = row.get("order") if isinstance(row.get("order"), dict) else {}
     amount = parse_amount(order.get("amount")) or 0.0
     return amount * payout_rate_for(row) if outcome["win"] else -amount
@@ -653,61 +661,39 @@ def payout_rate_for(row: dict[str, Any]) -> float:
     return parse_amount(row.get("payout_rate")) or HIBT_PAYOUT_RATE
 
 
+def settlement_for(row: dict[str, Any], settlements: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+    signal = row.get("signal") if isinstance(row.get("signal"), dict) else {}
+    signal_id = str(signal.get("signal_id") or (row.get("order") or {}).get("signal_id") or "")
+    settlement = settlements.get(signal_id)
+    if not settlement:
+        return None
+    outcome = str(settlement.get("outcome") or "").lower()
+    if outcome not in {"win", "loss"}:
+        return None
+    return {"win": outcome == "win", "pnl": parse_amount(settlement.get("pnl"))}
+
+
+def read_settlements(path: Path) -> dict[str, dict[str, Any]]:
+    rows: dict[str, dict[str, Any]] = {}
+    if not path.exists():
+        return rows
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            signal_id = str(row.get("signal_id") or "")
+            if signal_id:
+                rows[signal_id] = row
+    return rows
+
+
 def parse_amount(value: Any) -> float | None:
     try:
         return float(value)
     except (TypeError, ValueError):
         return None
-
-
-def read_closes_for(records: list[dict[str, Any]], data_root: Path) -> dict[str, dict[int, float]]:
-    symbols = {
-        normalize_symbol((row.get("signal") or {}).get("symbol", ""))
-        for row in records
-        if isinstance(row.get("signal"), dict)
-    }
-    return {symbol: read_live_closes(data_root, symbol) for symbol in symbols if symbol}
-
-
-def read_live_closes(data_root: Path, symbol: str) -> dict[int, float]:
-    path = data_root / "binance_spot_klines" / symbol / "1m_live.csv"
-    closes: dict[int, float] = {}
-    if not path.exists():
-        return closes
-    with path.open("r", encoding="utf-8", newline="") as handle:
-        for row in csv.DictReader(handle):
-            try:
-                closes[int(row["open_time"])] = float(row["close"])
-            except (KeyError, TypeError, ValueError):
-                continue
-    return closes
-
-
-def settle(row: dict[str, Any], closes: dict[str, dict[int, float]]) -> dict[str, Any] | None:
-    signal = row.get("signal") if isinstance(row.get("signal"), dict) else {}
-    try:
-        minutes = timeframe_minutes(signal.get("timeframe"))
-        order_time = parse_dt(row.get("order_started_at"))
-        start_time = completed_kline_open_time(order_time)
-        end_time = completed_kline_open_time(order_time + timedelta(minutes=minutes))
-        direction = signal_side(signal.get("side"))
-    except (TypeError, ValueError):
-        return None
-    table = closes.get(normalize_symbol(signal.get("symbol", "")), {})
-    start_close = table.get(to_ms(start_time))
-    end_close = table.get(to_ms(end_time))
-    if start_close is None or end_close is None or start_close == end_close:
-        return None
-    return {
-        "win": end_close > start_close if direction == "up" else end_close < start_close,
-        "start_close": start_close,
-        "end_close": end_close,
-    }
-
-
-def completed_kline_open_time(value: datetime) -> datetime:
-    minute = value.replace(second=0, microsecond=0)
-    return minute - timedelta(minutes=1)
 
 
 def parse_dt(value: Any) -> datetime:
@@ -720,10 +706,6 @@ def parse_dt(value: Any) -> datetime:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
-
-
-def to_ms(value: datetime) -> int:
-    return int(value.timestamp() * 1000)
 
 
 def timeframe_minutes(value: Any) -> int:
@@ -751,7 +733,14 @@ def normalize_symbol(value: Any) -> str:
     return text
 
 
-def make_handler(control_file: Path, log_file: Path, data_root: Path, tail: int, venue: str, venue_name: str) -> type[BaseHTTPRequestHandler]:
+def make_handler(
+    control_file: Path,
+    log_file: Path,
+    settlement_file: Path,
+    tail: int,
+    venue: str,
+    venue_name: str,
+) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         def do_HEAD(self) -> None:
             if urlparse(self.path).path == "/":
@@ -767,7 +756,7 @@ def make_handler(control_file: Path, log_file: Path, data_root: Path, tail: int,
                 self.send_html(INDEX_HTML)
                 return
             if path == "/api/state":
-                self.send_json(build_state(control_file, log_file, data_root, tail, venue, venue_name))
+                self.send_json(build_state(control_file, log_file, settlement_file, tail, venue, venue_name))
                 return
             self.send_error(404)
 
@@ -813,17 +802,9 @@ def make_handler(control_file: Path, log_file: Path, data_root: Path, tail: int,
 def self_test() -> None:
     with TemporaryDirectory() as temp:
         root = Path(temp)
-        data_root = root / "aligned_data_oos"
-        live = data_root / "binance_spot_klines" / "BTCUSDT" / "1m_live.csv"
-        live.parent.mkdir(parents=True)
         decision = datetime(2026, 6, 17, 12, 0, tzinfo=timezone.utc)
-        live.write_text(
-            "open_time,close\n"
-            f"{to_ms(decision - timedelta(minutes=1))},100\n"
-            f"{to_ms(decision + timedelta(minutes=4))},101\n",
-            encoding="utf-8",
-        )
         log = root / "hibt_api_orders.jsonl"
+        settlements = root / "settlements.jsonl"
         row = {
             "logged_at": decision.isoformat(),
             "signal": {
@@ -844,18 +825,18 @@ def self_test() -> None:
             "bankroll_source": "turboflow",
         }
         log.write_text(json.dumps({**row, "success": False}) + "\n" + json.dumps(row) + "\n", encoding="utf-8")
-        state = build_state(root / "control.json", log, data_root, 100, "hibt", "HiBT")
-        full_state = build_state(root / "control.json", log, data_root, 0, "hibt", "HiBT")
+        settlements.write_text(json.dumps({"signal_id": "x", "outcome": "win", "pnl": 2.4}) + "\n", encoding="utf-8")
+        state = build_state(root / "control.json", log, settlements, 100, "hibt", "HiBT")
+        full_state = build_state(root / "control.json", log, settlements, 0, "hibt", "HiBT")
         assert state["stats"]["count"] == 2
         assert full_state["stats"]["count"] == 2
-        assert build_state(root / "control.json", log, data_root, 1, "hibt", "HiBT")["stats"]["count"] == 1
+        assert build_state(root / "control.json", log, settlements, 1, "hibt", "HiBT")["stats"]["count"] == 1
         assert state["stats"]["win_rate"] == 1.0
         assert abs(state["stats"]["pnl"] - 2.4) < 1e-9
         assert state["stats"]["avg_payout_rate"] == HIBT_PAYOUT_RATE
         assert abs(state["stats"]["equity_curve"][-1]["pnl"] - 2.4) < 1e-9
         assert state["stats"]["timeframes"]["5m"]["avg_order_delay_seconds"] == 2.0
-        assert completed_kline_open_time(decision + timedelta(seconds=2)) == decision - timedelta(minutes=1)
-        tf_state = build_state(root / "tf_control.json", log, data_root, 1, "turboflow", "TurboFlow")
+        tf_state = build_state(root / "tf_control.json", log, settlements, 1, "turboflow", "TurboFlow")
         assert tf_state["control"]["bankroll"] == DEFAULT_BANKROLL
         assert tf_state["stats"]["latest_bankroll"] == 250.0
         assert tf_state["stats"]["kelly_bankroll"] == 250.0
@@ -866,10 +847,10 @@ def self_test() -> None:
             + json.dumps({**stale_row, "bankroll": 200.0, "bankroll_source": "dry_run"}) + "\n",
             encoding="utf-8",
         )
-        dry_state = build_state(root / "tf_control.json", dry_log, data_root, 0, "turboflow", "TurboFlow")
+        dry_state = build_state(root / "tf_control.json", dry_log, settlements, 0, "turboflow", "TurboFlow")
         assert dry_state["stats"]["count"] == 1
         assert abs(dry_state["stats"]["kelly_bankroll"] - 202.4) < 1e-9
-        assert recent([stale_row], {normalize_symbol("BTCUSDT"): read_live_closes(data_root, "BTCUSDT")})[0]["outcome"] == "stale"
+        assert recent([stale_row], read_settlements(settlements))[0]["outcome"] == "stale"
 
 
 def main() -> int:
@@ -880,7 +861,8 @@ def main() -> int:
     paths = venue_paths(args.venue)
     control_file = args.control_file or Path(paths["control_file"])
     log_file = args.log_file or Path(paths["log_file"])
-    handler = make_handler(control_file, log_file, args.data_root, args.tail, args.venue, str(paths["name"]))
+    settlement_file = args.settlement_file or Path(paths["settlement_file"])
+    handler = make_handler(control_file, log_file, settlement_file, args.tail, args.venue, str(paths["name"]))
     server = ThreadingHTTPServer((args.host, args.port), handler)
     print(f"control panel http://{args.host}:{args.port}", flush=True)
     try:

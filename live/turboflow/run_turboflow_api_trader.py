@@ -28,6 +28,7 @@ DEFAULT_SIGNAL_FILE = ROOT / "signals.json"
 DEFAULT_STATE_FILE = ROOT / "runtime" / "turboflow_api_state.json"
 DEFAULT_DRYRUN_STATE_FILE = ROOT / "runtime" / "turboflow_api_dryrun_state.json"
 DEFAULT_LOG_FILE = ROOT / "runtime" / "turboflow_api_orders.jsonl"
+DEFAULT_SETTLEMENT_FILE = ROOT / "runtime" / "turboflow_settlements.jsonl"
 DEFAULT_CONTROL_FILE = ROOT / "runtime" / "turboflow_control.json"
 DEFAULT_DATA_ROOT = ROOT.parent.parent / "aligned_data_oos"
 DEFAULT_BANKROLL = 200.0
@@ -93,7 +94,6 @@ def main() -> int:
     if not args.live:
         state.processed.update(read_logged_signal_ids(args.log_file))
     credentials = TurboFlowCredentials.from_env() if args.live else dry_run_credentials()
-    rates = return_rate_map(timeout_seconds=CONFIG_TIMEOUT_SECONDS)
     balance = BalanceCache(credentials, args.live, args.bankroll)
     balance.refresh(args.bankroll)
     print(
@@ -110,7 +110,9 @@ def main() -> int:
                     return 0
                 time.sleep(args.poll_seconds)
                 continue
-            control_bankroll = effective_bankroll(args.live, args.log_file, args.data_root, control["bankroll"])
+            if not args.live:
+                write_due_settlements(args.log_file, args.settlement_file, args.data_root)
+            control_bankroll = effective_bankroll(args.live, args.settlement_file, control["bankroll"])
             signals = [
                 signal
                 for signal in read_signals(args.signal_file)
@@ -123,11 +125,20 @@ def main() -> int:
                     return 0
                 next(events)
                 continue
+            active_signals = []
             for signal in signals:
                 if is_stale_signal(signal):
                     print(f"skip stale {signal.signal_id}", flush=True)
                     state.mark(signal.signal_id)
                     continue
+                active_signals.append(signal)
+            if not active_signals:
+                if args.once:
+                    return 0
+                next(events)
+                continue
+            rates = return_rate_map(timeout_seconds=CONFIG_TIMEOUT_SECONDS)
+            for signal in active_signals:
                 try:
                     bankroll, bankroll_source = balance.current(control_bankroll)
                 except RuntimeError as exc:
@@ -177,6 +188,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--signal-file", type=Path, default=DEFAULT_SIGNAL_FILE)
     parser.add_argument("--state-file", type=Path, default=DEFAULT_STATE_FILE)
     parser.add_argument("--log-file", type=Path, default=DEFAULT_LOG_FILE)
+    parser.add_argument("--settlement-file", type=Path, default=DEFAULT_SETTLEMENT_FILE)
     parser.add_argument("--control-file", type=Path, default=DEFAULT_CONTROL_FILE)
     parser.add_argument("--poll-seconds", type=float, default=0.05)
     parser.add_argument("--bankroll", type=float, default=DEFAULT_BANKROLL)
@@ -259,27 +271,27 @@ def order_amount(signal: Signal, bankroll: Any) -> str:
 
 
 class BalanceCache:
-    def __init__(self, credentials: TurboFlowCredentials, live: bool, fallback: Any) -> None:
+    def __init__(self, credentials: TurboFlowCredentials, live: bool, base_bankroll: Any) -> None:
         self.credentials = credentials
         self.live = live
-        self.value = None if live else positive_float(fallback, DEFAULT_BANKROLL)
+        self.value = None if live else positive_float(base_bankroll, DEFAULT_BANKROLL)
         self.source = "turboflow" if live else "dry_run"
         self.refresh_at = 0.0
 
-    def current(self, fallback: Any) -> tuple[float, str]:
+    def current(self, base_bankroll: Any) -> tuple[float, str]:
         if not self.live:
-            self.value = positive_float(fallback, DEFAULT_BANKROLL)
+            self.value = positive_float(base_bankroll, DEFAULT_BANKROLL)
             self.source = "dry_run"
             return self.value, self.source
         if self.value is None:
-            self.refresh(fallback)
+            self.refresh(base_bankroll)
         if self.value is None:
             raise RuntimeError("TurboFlow balance unavailable; refusing live order")
         return self.value, "turboflow"
 
-    def refresh(self, fallback: Any) -> None:
+    def refresh(self, base_bankroll: Any) -> None:
         if not self.live:
-            self.value = positive_float(fallback, DEFAULT_BANKROLL)
+            self.value = positive_float(base_bankroll, DEFAULT_BANKROLL)
             self.source = "dry_run"
             return
         now = time.monotonic()
@@ -313,35 +325,112 @@ def normalize_symbol(value: str) -> str:
     return text
 
 
-def effective_bankroll(live: bool, log_file: Path, data_root: Path, base_bankroll: Any) -> float:
+def effective_bankroll(live: bool, settlement_file: Path, base_bankroll: Any) -> float:
     base = positive_float(base_bankroll, DEFAULT_BANKROLL)
     if live:
         return base
-    return max(MIN_ORDER_AMOUNT, base + settled_pnl(log_file, data_root))
+    return max(MIN_ORDER_AMOUNT, base + settled_pnl(settlement_file))
 
 
-def settled_pnl(log_file: Path, data_root: Path) -> float:
-    if not log_file.exists():
+def settled_pnl(settlement_file: Path) -> float:
+    if not settlement_file.exists():
         return 0.0
-    records = []
-    with log_file.open("r", encoding="utf-8") as handle:
+    total = 0.0
+    with settlement_file.open("r", encoding="utf-8") as handle:
         for line in handle:
             try:
                 row = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if isinstance(row, dict) and row.get("success") and not stale_record(row):
-                records.append(row)
-    closes = {symbol: read_live_closes(data_root, symbol) for symbol in symbols_for(records)}
-    return sum(pnl_for(row, outcome) for row in records if (outcome := settle(row, closes)) is not None)
+            try:
+                total += float(row.get("pnl") or 0.0)
+            except (TypeError, ValueError):
+                continue
+    return total
+
+
+def write_due_settlements(log_file: Path, settlement_file: Path, data_root: Path) -> None:
+    records = [row for row in read_order_records(log_file) if row.get("success") and not stale_record(row)]
+    settled_ids = read_settled_signal_ids(settlement_file)
+    due = [row for row in records if signal_id_for(row) not in settled_ids and order_is_due(row)]
+    if not due:
+        return
+    closes = {symbol: read_live_closes(data_root, symbol) for symbol in symbols_for(due)}
+    rows = [settlement for row in due if (settlement := settle_order(row, closes)) is not None]
+    if rows:
+        append_jsonl(settlement_file, rows)
+
+
+def read_order_records(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    rows = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict):
+                rows.append(row)
+    return rows
+
+
+def read_settled_signal_ids(path: Path) -> set[str]:
+    return {str(row.get("signal_id")) for row in read_order_records(path) if row.get("signal_id")}
+
+
+def append_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        for row in rows:
+            json.dump(row, handle, ensure_ascii=False)
+            handle.write("\n")
+
+
+def order_is_due(row: dict[str, Any]) -> bool:
+    signal = row.get("signal") if isinstance(row.get("signal"), dict) else {}
+    try:
+        minutes = int(str(signal.get("timeframe", "")).lower().removesuffix("m"))
+        return datetime.now(timezone.utc) >= parse_dt(row.get("order_started_at")) + timedelta(minutes=minutes + 1)
+    except (TypeError, ValueError):
+        return False
+
+
+def settle_order(row: dict[str, Any], closes: dict[str, dict[int, float]]) -> dict[str, Any] | None:
+    signal = row.get("signal") if isinstance(row.get("signal"), dict) else {}
+    order = row.get("order") if isinstance(row.get("order"), dict) else {}
+    try:
+        minutes = int(str(signal.get("timeframe", "")).lower().removesuffix("m"))
+        order_time = parse_dt(row.get("order_started_at"))
+        start_time = completed_kline_open_time(order_time)
+        end_time = completed_kline_open_time(order_time + timedelta(minutes=minutes))
+        start_close = closes.get(normalize_symbol(signal.get("symbol", "")), {}).get(to_ms(start_time))
+        end_close = closes.get(normalize_symbol(signal.get("symbol", "")), {}).get(to_ms(end_time))
+    except (TypeError, ValueError):
+        return None
+    if start_close is None or end_close is None or start_close == end_close:
+        return None
+    up = str(signal.get("side", "")).upper() == "BUY"
+    win = end_close > start_close if up else end_close < start_close
+    amount = positive_float(order.get("amount"), 0.0)
+    payout_rate = positive_float(row.get("payout_rate"), 0.0)
+    return {
+        "signal_id": signal_id_for(row),
+        "settled_at": datetime.now(timezone.utc).isoformat(),
+        "outcome": "win" if win else "loss",
+        "pnl": amount * payout_rate if win else -amount,
+    }
+
+
+def signal_id_for(row: dict[str, Any]) -> str:
+    signal = row.get("signal") if isinstance(row.get("signal"), dict) else {}
+    order = row.get("order") if isinstance(row.get("order"), dict) else {}
+    return str(signal.get("signal_id") or order.get("signal_id") or "")
 
 
 def symbols_for(records: list[dict[str, Any]]) -> set[str]:
-    return {
-        normalize_symbol(signal.get("symbol", ""))
-        for row in records
-        if isinstance(signal := row.get("signal"), dict)
-    }
+    return {normalize_symbol((row.get("signal") or {}).get("symbol", "")) for row in records}
 
 
 def read_live_closes(data_root: Path, symbol: str) -> dict[int, float]:
@@ -358,21 +447,12 @@ def read_live_closes(data_root: Path, symbol: str) -> dict[int, float]:
     return closes
 
 
-def settle(row: dict[str, Any], closes: dict[str, dict[int, float]]) -> dict[str, bool] | None:
-    signal = row.get("signal") if isinstance(row.get("signal"), dict) else {}
-    try:
-        minutes = int(str(signal.get("timeframe", "")).lower().removesuffix("m"))
-        order_time = parse_dt(row.get("order_started_at"))
-        start_time = completed_kline_open_time(order_time)
-        end_time = completed_kline_open_time(order_time + timedelta(minutes=minutes))
-        start_close = closes.get(normalize_symbol(signal.get("symbol", "")), {}).get(to_ms(start_time))
-        end_close = closes.get(normalize_symbol(signal.get("symbol", "")), {}).get(to_ms(end_time))
-    except (TypeError, ValueError):
-        return None
-    if start_close is None or end_close is None or start_close == end_close:
-        return None
-    up = str(signal.get("side", "")).upper() == "BUY"
-    return {"win": end_close > start_close if up else end_close < start_close}
+def completed_kline_open_time(value: datetime) -> datetime:
+    return value.replace(second=0, microsecond=0) - timedelta(minutes=1)
+
+
+def to_ms(value: datetime) -> int:
+    return int(value.timestamp() * 1000)
 
 
 def is_stale_signal(signal: Signal) -> bool:
@@ -392,18 +472,6 @@ def stale_record(row: dict[str, Any]) -> bool:
     return age > MAX_SIGNAL_AGE_SECONDS
 
 
-def completed_kline_open_time(value: datetime) -> datetime:
-    minute = value.replace(second=0, microsecond=0)
-    return minute - timedelta(minutes=1)
-
-
-def pnl_for(row: dict[str, Any], outcome: dict[str, bool]) -> float:
-    order = row.get("order") if isinstance(row.get("order"), dict) else {}
-    amount = positive_float(order.get("amount"), 0.0)
-    payout_rate = positive_float(row.get("payout_rate"), 0.0)
-    return amount * payout_rate if outcome["win"] else -amount
-
-
 def parse_dt(value: Any) -> datetime:
     text = str(value or "").strip()
     if text.endswith("Z"):
@@ -412,17 +480,14 @@ def parse_dt(value: Any) -> datetime:
     return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
 
 
-def to_ms(value: datetime) -> int:
-    return int(value.timestamp() * 1000)
-
-
 def self_test() -> None:
     with TemporaryDirectory() as temp:
         root = Path(temp)
         data_root = root / "aligned_data_oos"
+        settlements = root / "settlements.jsonl"
+        decision = datetime(2026, 6, 27, 12, 0, tzinfo=timezone.utc)
         live = data_root / "binance_spot_klines" / "BTCUSDT" / "1m_live.csv"
         live.parent.mkdir(parents=True)
-        decision = datetime(2026, 6, 27, 12, 0, tzinfo=timezone.utc)
         live.write_text(
             "open_time,close\n"
             f"{to_ms(decision - timedelta(minutes=1))},100\n"
@@ -433,6 +498,7 @@ def self_test() -> None:
         row = {
             "success": True,
             "signal": {
+                "signal_id": "x",
                 "symbol": "BTCUSDT",
                 "timeframe": "5m",
                 "side": "BUY",
@@ -443,13 +509,18 @@ def self_test() -> None:
             "order": {"amount": "3"},
             "payout_rate": 0.8,
         }
+        settlements.write_text(
+            json.dumps({"signal_id": "x", "pnl": 2.4}) + "\n"
+            + json.dumps({"signal_id": "y", "pnl": -3.0}) + "\n",
+            encoding="utf-8",
+        )
         log.write_text(json.dumps(row) + "\n", encoding="utf-8")
-        assert abs(effective_bankroll(False, log, data_root, 200.0) - 202.4) < 1e-9
+        assert abs(effective_bankroll(False, settlements, 200.0) - 199.4) < 1e-9
         stale_row = {**row, "order_started_at": (decision + timedelta(seconds=20)).isoformat()}
         log.write_text(json.dumps(row) + "\n" + json.dumps(stale_row) + "\n", encoding="utf-8")
-        assert abs(effective_bankroll(False, log, data_root, 200.0) - 202.4) < 1e-9
-        assert effective_bankroll(True, log, data_root, 200.0) == 200.0
-        assert completed_kline_open_time(decision + timedelta(seconds=1)) == decision - timedelta(minutes=1)
+        assert abs(effective_bankroll(False, settlements, 200.0) - 199.4) < 1e-9
+        assert effective_bankroll(True, settlements, 200.0) == 200.0
+        assert abs(settle_order(row, {"BTCUSDT": read_live_closes(data_root, "BTCUSDT")})["pnl"] - 2.4) < 1e-9
 
 
 def read_signals(path: Path) -> list[Signal]:
